@@ -11,18 +11,6 @@
     {
       "cmd": "sudo python learning_controller.py s1 cpu &",
       "reboot_run": true
-    },
-    {
-      "cmd": "sudo python learning_controller.py s2 cpu &",
-      "reboot_run": true
-    },
-    {
-      "cmd": "sudo python learning_controller.py s3 cpu &",
-      "reboot_run": true
-    },
-    {
-      "cmd": "sudo python learning_controller.py s4 cpu &",
-      "reboot_run": true
     }
   ],
   "topo_module": {
@@ -45,8 +33,8 @@
     "assignment_strategy": "l2",
     "auto_arp_tables": false,
     "links": [
-      ["h1", "s1"], ["h2", "s1"], ["h3", "s3"], ["h4", "s3"], ["h5", "s4"],
-      ["h6", "s4"], ["s1", "s2"], ["s2", "s3"], ["s2", "s4"]
+      ["h1", "s1"], ["h2", "s1"],
+      ["h3", "s1"], ["h4", "s1"]
     ],
     "hosts": {
       "h1": {
@@ -56,20 +44,10 @@
       "h3": {
       },
       "h4": {
-      },
-      "h5": {
-      },
-      "h6": {
       }
     },
     "switches": {
       "s1": {"cpu_port":true
-      },
-      "s2": {"cpu_port":true
-      },
-      "s3": {"cpu_port":true
-      },
-      "s4": {"cpu_port":true
       }
     }
   }
