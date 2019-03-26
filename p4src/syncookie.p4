@@ -88,7 +88,7 @@ parser MyParser(packet_in packet,
 	state ethernet {
 		packet.extract(hdr.ethernet);
 		transition select(hdr.ethernet.etherType) {
-TYPE_IPV4: ipv4;
+			TYPE_IPV4: ipv4;
 			default: accept;
 		}
 	}
@@ -96,7 +96,7 @@ TYPE_IPV4: ipv4;
 	state ipv4 {
 		packet.extract(hdr.ipv4);
 		transition select(hdr.ipv4.protocol) {
-6: parse_tcp;
+			6: parse_tcp;
 			default: accept;
 		}
 	}
