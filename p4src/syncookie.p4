@@ -44,7 +44,6 @@ parser MyParser(packet_in packet,
 		out headers hdr,
 		inout metadata meta,
 		inout standard_metadata_t standard_metadata) {
-
 	state start {
 		packet.extract(hdr.ethernet);
 		transition accept;
@@ -68,9 +67,7 @@ control MyVerifyChecksum(inout headers hdr, inout metadata meta) {
 control MyIngress(inout headers hdr,
 		inout metadata meta,
 		inout standard_metadata_t standard_metadata) {
-
 	action drop() {
-
 		mark_to_drop();
 	}
 
@@ -80,7 +77,6 @@ control MyIngress(inout headers hdr,
 	}
 
 	table smac {
-
 		key = {
 			hdr.ethernet.srcAddr: exact;
 		}
@@ -128,7 +124,6 @@ control MyIngress(inout headers hdr,
 	}
 
 	apply {
-
 		smac.apply();
 		if (dmac.apply().hit){
 			//
@@ -146,7 +141,6 @@ control MyIngress(inout headers hdr,
 control MyEgress(inout headers hdr,
 		inout metadata meta,
 		inout standard_metadata_t standard_metadata) {
-
 	apply {
 
 		// If ingress clone
