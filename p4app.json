@@ -9,7 +9,7 @@
   "enable_log": true,
   "exec_scripts": [
     {
-      "cmd": "sudo python learning_controller.py s1 cpu &",
+      "cmd": "sudo python learning_controller.py s1 &",
       "reboot_run": true
     }
   ],
