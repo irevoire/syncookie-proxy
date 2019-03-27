@@ -26,7 +26,7 @@ class L2Controller(object):
         # this entry work for :
         # h2: nc -l 2000
         # h1: nc 10.0.0.2 2000 -p 2000
-        self.controller.table_add("tcp_forward", "nothing", ["0x07d007d3"], ["0"])
+        self.controller.table_add("tcp_forward", "NoAction", ["0x07d007d3"], [])
 
     def add_mirror(self):
         if self.cpu_port:

@@ -187,14 +187,12 @@ control MyIngress(inout headers hdr,
 		meta.cookie = meta.cookie ^ hdr.ipv4.dstAddr;
 	}
 
-	action nothing(bit<1> useless) {}
-
 	table tcp_forward {
 		key = {
 			meta.cookie: exact;
 		}
 		actions = {
-			nothing;
+			NoAction;
 			drop;
 		}
 		size = 256;
