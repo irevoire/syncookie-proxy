@@ -23,6 +23,7 @@ class L2Controller(object):
         self.controller.reset_state()
         self.add_boadcast_groups()
         self.add_mirror()
+        self.controller.table_add("tcp_forward", "nothing", ["0"], ["0"])
 
     def add_mirror(self):
         if self.cpu_port:

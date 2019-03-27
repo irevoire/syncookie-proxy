@@ -48,8 +48,7 @@
 		},
 		"switches": {
 			"s1": {
-				"cpu_port":true,
-				"cli_input": "commands.txt"
+				"cpu_port":true
 			}
 		}
 	}
