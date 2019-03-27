@@ -202,14 +202,13 @@ control MyIngress(inout headers hdr,
 	}
 
 	apply {
-		// compute_cookie();
+		smac.apply();
+		if (!dmac.apply().hit) {
+			broadcast.apply();
+		}
 		if (hdr.tcp.isValid()) {
+			compute_cookie();
 			tcp_forward.apply();
-		} else {
-			smac.apply();
-			if (!dmac.apply().hit) {
-				broadcast.apply();
-			}
 		}
 	}
 }
