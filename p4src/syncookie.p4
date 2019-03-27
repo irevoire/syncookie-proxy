@@ -38,7 +38,7 @@ header ipv4_t {
 header tcp_t{
 	bit<16> srcPort;
 	bit<16> dstPort;
-	bit<32> seqNo;
+	bit<32> seqNo; // will carry the cookie
 	bit<32> ackNo;
 	bit<4>  dataOffset;
 	bit<4>  res;
@@ -61,8 +61,8 @@ header cpu_t {
 }
 
 struct metadata {
-	bit<9> ingress_port;
-	/* empty */
+	bit<9>  ingress_port;
+	bit<32> cookie;
 }
 
 struct headers {
@@ -180,13 +180,36 @@ control MyIngress(inout headers hdr,
 		default_action = NoAction;
 	}
 
-	apply {
-		smac.apply();
-		if (dmac.apply().hit){
-			//
+	action compute_cookie() {
+		meta.cookie = (bit<32>)hdr.tcp.srcPort;
+		meta.cookie = (meta.cookie << 16) ^ (bit<32>) hdr.tcp.dstPort;
+		meta.cookie = meta.cookie ^ hdr.ipv4.srcAddr;
+		meta.cookie = meta.cookie ^ hdr.ipv4.dstAddr;
+	}
+
+	action nothing(bit<1> useless) {}
+
+	table tcp_forward {
+		key = {
+			meta.cookie: exact;
 		}
-		else {
-			broadcast.apply();
+		actions = {
+			nothing;
+			drop;
+		}
+		size = 256;
+		default_action = drop;
+	}
+
+	apply {
+		// compute_cookie();
+		if (hdr.tcp.isValid()) {
+			tcp_forward.apply();
+		} else {
+			smac.apply();
+			if (!dmac.apply().hit) {
+				broadcast.apply();
+			}
 		}
 	}
 }
