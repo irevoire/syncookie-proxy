@@ -4,6 +4,7 @@
 
 const bit<16> TYPE_IPV4 = 0x800;
 const bit<16> L2_LEARN_ETHER_TYPE = 0x1234;
+const bit<16> LEARN_COOKIE = 0xF00D;
 
 /*************************************************************************
  *********************** H E A D E R S  ***********************************
@@ -38,8 +39,8 @@ header ipv4_t {
 header tcp_t{
 	bit<16> srcPort;
 	bit<16> dstPort;
-	bit<32> seqNo; // will carry the cookie
-	bit<32> ackNo;
+	bit<32> seqNo;
+	bit<32> ackNo; // will carry the cookie
 	bit<4>  dataOffset;
 	bit<4>  res;
 	bit<1>  cwr;
@@ -56,11 +57,20 @@ header tcp_t{
 }
 
 header cpu_t {
-	bit<48> srcAddr;
-	bit<16> ingress_port;
+	// router
+	bit<16>   ingress_port;
+	macAddr_t macAddr;
+	// synCookie Proxy
+	ip4Addr_t srcAddr;
+	ip4Addr_t dstAddr;
+	bit<16>   srcPort;
+	bit<16>   dstPort;
 }
 
 struct metadata {
+	bit<1>  update_route;
+	bit<1>  good_cookie;
+
 	bit<9>  ingress_port;
 	bit<32> cookie;
 }
@@ -71,7 +81,6 @@ struct headers {
 	tcp_t      tcp;
 	cpu_t      cpu;
 }
-
 
 /*************************************************************************
  *********************** P A R S E R  ***********************************
@@ -88,7 +97,7 @@ parser MyParser(packet_in packet,
 	state ethernet {
 		packet.extract(hdr.ethernet);
 		transition select(hdr.ethernet.etherType) {
-TYPE_IPV4: ipv4;
+			TYPE_IPV4: ipv4;
 			default: accept;
 		}
 	}
@@ -96,7 +105,7 @@ TYPE_IPV4: ipv4;
 	state ipv4 {
 		packet.extract(hdr.ipv4);
 		transition select(hdr.ipv4.protocol) {
-6: parse_tcp;
+			6: parse_tcp;
 			default: accept;
 		}
 	}
@@ -130,6 +139,7 @@ control MyIngress(inout headers hdr,
 
 	action mac_learn() {
 		meta.ingress_port = standard_metadata.ingress_port;
+		meta.update_route = 1;
 		clone3(CloneType.I2E, 100, meta);
 	}
 
@@ -199,6 +209,30 @@ control MyIngress(inout headers hdr,
 		default_action = drop;
 	}
 
+	action handle_syn() {
+		// first we send the packet back to the source
+		standard_metadata.egress_spec = standard_metadata.ingress_port;
+		// increment seqNo and move it to ackNo
+		hdr.tcp.ackNo = hdr.tcp.seqNo + 1;
+		// store the cookie into our seqNo
+		hdr.tcp.seqNo = meta.cookie;
+		// set the tcp flags to SYN-ACK
+		hdr.tcp.ack = 1;
+		// swap src / dst port
+		bit<16> port = hdr.tcp.srcPort;
+		hdr.tcp.srcPort = hdr.tcp.dstPort;
+		hdr.tcp.dstPort = hdr.tcp.srcPort;
+	}
+
+	action handle_ack() {
+		// we must save the connection as a safe
+		meta.good_cookie = 1;
+		clone3(CloneType.I2E, 100, meta);
+
+		// we do nothing else because we expect the recipient
+		// to handle everything (increment ack, swap port etc...)
+	}
+
 	apply {
 		smac.apply();
 		if (!dmac.apply().hit) {
@@ -206,7 +240,18 @@ control MyIngress(inout headers hdr,
 		}
 		if (hdr.tcp.isValid()) {
 			compute_cookie();
-			tcp_forward.apply();
+			if (!tcp_forward.apply().hit) {
+				// you won't steal my cookie!
+				if (hdr.tcp.syn == 1 && hdr.tcp.ack == 1)
+					drop();
+				// we should get a syn
+				else if (hdr.tcp.syn == 1)
+					handle_syn();
+				// or has the communication already started?
+				else if ( (hdr.tcp.ack == 1) &&
+						((hdr.tcp.ackNo - 1) == meta.cookie))
+					handle_ack();
+			}
 		}
 	}
 }
@@ -219,14 +264,23 @@ control MyEgress(inout headers hdr,
 		inout metadata meta,
 		inout standard_metadata_t standard_metadata) {
 	apply {
-
 		// If ingress clone
-		if (standard_metadata.instance_type == 1){
+		if (standard_metadata.instance_type == 1) {
 			hdr.cpu.setValid();
-			hdr.cpu.srcAddr = hdr.ethernet.srcAddr;
-			hdr.cpu.ingress_port = (bit<16>)meta.ingress_port;
-			hdr.ethernet.etherType = L2_LEARN_ETHER_TYPE;
-			truncate((bit<32>)22); //ether+cpu header
+			if (meta.update_route == 1) {
+				hdr.cpu.macAddr = hdr.ethernet.srcAddr;
+				hdr.cpu.ingress_port = (bit<16>)meta.ingress_port;
+				hdr.ethernet.etherType = L2_LEARN_ETHER_TYPE;
+				truncate((bit<32>)22); //ether+cpu header
+			}
+			if (meta.good_cookie == 1) {
+				hdr.cpu.srcAddr = hdr.ipv4.srcAddr;
+				hdr.cpu.dstAddr = hdr.ipv4.dstAddr;
+				hdr.cpu.srcPort = hdr.tcp.srcPort;
+				hdr.cpu.dstPort = hdr.tcp.dstPort;
+
+				hdr.ethernet.etherType = LEARN_COOKIE;
+			}
 		}
 	}
 }
@@ -251,6 +305,7 @@ control MyDeparser(packet_out packet, in headers hdr) {
 		packet.emit(hdr.ethernet);
 		packet.emit(hdr.ipv4);
 		packet.emit(hdr.tcp);
+
 		packet.emit(hdr.cpu);
 	}
 }
