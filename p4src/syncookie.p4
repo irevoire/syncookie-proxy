@@ -54,11 +54,6 @@ header tcp_t{
 	bit<16> window;
 	bit<16> checksum;
 	bit<16> urgentPtr;
-	/*
-	bit<64> padding1;
-	bit<32> TSval;
-	bit<32> TSecr;
-	*/
 }
 
 header cpu_t {
@@ -228,15 +223,32 @@ control MyIngress(inout headers hdr,
 	}
 
 	action handle_syn() {
-		// first we'll compute our new checksum
+		// =========== PHY ============
+		// send the packet back to the source
+		standard_metadata.egress_spec = standard_metadata.ingress_port;
+
+		// =========== MAC ============
+		// swap src / dst addr
+		macAddr_t macaddr = hdr.ethernet.srcAddr;
+		hdr.ethernet.srcAddr = hdr.ethernet.dstAddr;
+		hdr.ethernet.dstAddr = macaddr;
+
+		// =========== IP ============
+		// swap src / dst addr
+		ip4Addr_t ipaddr = hdr.ipv4.srcAddr;
+		hdr.ipv4.srcAddr = hdr.ipv4.dstAddr;
+		hdr.ipv4.dstAddr = ipaddr;
+
+		hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
+
+		// =========== TCP ============
+		// first we'll update the checksum
 		bit<32> checksum = (bit<32>) hdr.tcp.checksum;
 		checksum = checksum + ~meta.cookie;
-		checksum = checksum + 0xFFEE;
+		checksum = checksum + 0xFFEE; // MAGIC
 		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
 		hdr.tcp.checksum = (bit<16>) checksum;
 
-		// first we send the packet back to the source
-		standard_metadata.egress_spec = standard_metadata.ingress_port;
 		// increment seqNo and move it to ackNo
 		hdr.tcp.ackNo = hdr.tcp.seqNo + 1;
 		// store the cookie into our seqNo
@@ -244,23 +256,15 @@ control MyIngress(inout headers hdr,
 		// set the tcp flags to SYN-ACK
 		hdr.tcp.ack = 1;
 
-		// swap src / dst addr
-		ip4Addr_t addr = hdr.ipv4.srcAddr;
-		hdr.ipv4.srcAddr = hdr.ipv4.dstAddr;
-		hdr.ipv4.dstAddr = addr;
-
 		// swap src / dst port
-		bit<16> port = hdr.tcp.srcPort;
+		bit<16> tcpport = hdr.tcp.srcPort;
 		hdr.tcp.srcPort = hdr.tcp.dstPort;
-		hdr.tcp.dstPort = port;
+		hdr.tcp.dstPort = tcpport;
 
-		hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
-		// update tcp timestamp value
-		// hdr.tcp.TSecr = hdr.tcp.TSval;
 	}
 
 	action handle_ack() {
-		// we must save the connection as a safe
+		// we must save the connection as a safe one
 		meta.good_cookie = 1;
 		clone3(CloneType.I2E, 100, meta);
 
