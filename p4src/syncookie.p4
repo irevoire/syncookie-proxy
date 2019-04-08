@@ -54,6 +54,11 @@ header tcp_t{
 	bit<16> window;
 	bit<16> checksum;
 	bit<16> urgentPtr;
+	/*
+	bit<64> padding1;
+	bit<32> TSval;
+	bit<32> TSecr;
+	*/
 }
 
 header cpu_t {
@@ -68,11 +73,14 @@ header cpu_t {
 }
 
 struct metadata {
+	bit<16> cs_word;
+
 	bit<1>  update_route;
 	bit<1>  good_cookie;
 
 	bit<9>  ingress_port;
 	bit<32> cookie;
+	bit<96> connection; // two ip address (32 * 2) + two ports (16 * 2)
 }
 
 struct headers {
@@ -190,16 +198,26 @@ control MyIngress(inout headers hdr,
 		default_action = NoAction;
 	}
 
+	action compute_connection() {
+		meta.connection = (bit<96>)hdr.ipv4.srcAddr;
+		meta.connection = meta.connection << 32;
+		meta.connection = meta.connection | (bit<96>)hdr.ipv4.dstAddr;
+		meta.connection = meta.connection << 16;
+		meta.connection = meta.connection | (bit<96>)hdr.tcp.srcPort;
+		meta.connection = meta.connection << 16;
+		meta.connection = meta.connection | (bit<96>)hdr.tcp.dstPort;
+	}
+
 	action compute_cookie() {
 		meta.cookie = (bit<32>)hdr.tcp.srcPort;
-		meta.cookie = (meta.cookie << 16) ^ (bit<32>) hdr.tcp.dstPort;
+		meta.cookie = (meta.cookie << 16) | (bit<32>) hdr.tcp.dstPort;
 		meta.cookie = meta.cookie ^ hdr.ipv4.srcAddr;
 		meta.cookie = meta.cookie ^ hdr.ipv4.dstAddr;
 	}
 
 	table tcp_forward {
 		key = {
-			meta.cookie: exact;
+			meta.connection: exact;
 		}
 		actions = {
 			NoAction;
@@ -210,6 +228,13 @@ control MyIngress(inout headers hdr,
 	}
 
 	action handle_syn() {
+		// first we'll compute our new checksum
+		bit<32> checksum = (bit<32>) hdr.tcp.checksum;
+		checksum = checksum + ~meta.cookie;
+		checksum = checksum + 0xFFEE;
+		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
+		hdr.tcp.checksum = (bit<16>) checksum;
+
 		// first we send the packet back to the source
 		standard_metadata.egress_spec = standard_metadata.ingress_port;
 		// increment seqNo and move it to ackNo
@@ -218,10 +243,20 @@ control MyIngress(inout headers hdr,
 		hdr.tcp.seqNo = meta.cookie;
 		// set the tcp flags to SYN-ACK
 		hdr.tcp.ack = 1;
+
+		// swap src / dst addr
+		ip4Addr_t addr = hdr.ipv4.srcAddr;
+		hdr.ipv4.srcAddr = hdr.ipv4.dstAddr;
+		hdr.ipv4.dstAddr = addr;
+
 		// swap src / dst port
 		bit<16> port = hdr.tcp.srcPort;
 		hdr.tcp.srcPort = hdr.tcp.dstPort;
-		hdr.tcp.dstPort = hdr.tcp.srcPort;
+		hdr.tcp.dstPort = port;
+
+		hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
+		// update tcp timestamp value
+		// hdr.tcp.TSecr = hdr.tcp.TSval;
 	}
 
 	action handle_ack() {
@@ -239,8 +274,9 @@ control MyIngress(inout headers hdr,
 			broadcast.apply();
 		}
 		if (hdr.tcp.isValid()) {
-			compute_cookie();
+			compute_connection();
 			if (!tcp_forward.apply().hit) {
+				compute_cookie();
 				// you won't steal my cookie!
 				if (hdr.tcp.syn == 1 && hdr.tcp.ack == 1)
 					drop();
@@ -291,7 +327,21 @@ control MyEgress(inout headers hdr,
 
 control MyComputeChecksum(inout headers hdr, inout metadata meta) {
 	apply {
-
+		update_checksum(true, {
+				hdr.ipv4.version,
+				hdr.ipv4.ihl,
+				hdr.ipv4.dscp,
+				hdr.ipv4.ecn,
+				hdr.ipv4.totalLen,
+				hdr.ipv4.identification,
+				hdr.ipv4.flags,
+				hdr.ipv4.fragOffset,
+				hdr.ipv4.ttl,
+				hdr.ipv4.protocol,
+				hdr.ipv4.srcAddr,
+				hdr.ipv4.dstAddr
+				},
+				hdr.ipv4.hdrChecksum, HashAlgorithm.csum16);
 	}
 }
 
