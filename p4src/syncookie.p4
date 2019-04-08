@@ -282,7 +282,12 @@ control MyIngress(inout headers hdr,
 			if (!tcp_forward.apply().hit) {
 				compute_cookie();
 				// you won't steal my cookie!
-				if (hdr.tcp.syn == 1 && hdr.tcp.ack == 1)
+				// if SYN-ACK or any other flags, drop
+				if (hdr.tcp.syn == 1 && hdr.tcp.ack == 1 ||
+					hdr.tcp.res == 1 || hdr.tcp.cwr == 1 ||
+					hdr.tcp.ece == 1 || hdr.tcp.urg == 1 ||
+					hdr.tcp.psh == 1 || hdr.tcp.rst == 1 ||
+					hdr.tcp.fin == 1)
 					drop();
 				// we should get a syn
 				else if (hdr.tcp.syn == 1)
