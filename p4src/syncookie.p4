@@ -15,9 +15,9 @@ typedef bit<48> macAddr_t;
 typedef bit<32> ip4Addr_t;
 
 header ethernet_t {
-	macAddr_t dstAddr;
-	macAddr_t srcAddr;
-	bit<16>   etherType;
+	macAddr_t dstAddr;   // 6
+	macAddr_t srcAddr;   // 6
+	bit<16>   etherType; // 2
 }
 
 header ipv4_t {
@@ -56,15 +56,18 @@ header tcp_t{
 	bit<16> urgentPtr;
 }
 
-header cpu_t {
+header cpu_route_t {
 	// router
-	bit<16>   ingress_port;
-	macAddr_t macAddr;
+	bit<16>   ingress_port; // 2
+	macAddr_t macAddr;      // 6
+}
+
+header cpu_cookie_t {
 	// synCookie Proxy
-	ip4Addr_t srcAddr;
-	ip4Addr_t dstAddr;
-	bit<16>   srcPort;
-	bit<16>   dstPort;
+	ip4Addr_t srcAddr; // 4
+	ip4Addr_t dstAddr; // 4
+	bit<16>   srcPort; // 2
+	bit<16>   dstPort; // 2
 }
 
 struct metadata {
@@ -82,7 +85,9 @@ struct headers {
 	ethernet_t ethernet;
 	ipv4_t     ipv4;
 	tcp_t      tcp;
-	cpu_t      cpu;
+
+	cpu_route_t      cpu_route;
+	cpu_cookie_t     cpu_cookie;
 }
 
 /*************************************************************************
@@ -194,13 +199,16 @@ control MyIngress(inout headers hdr,
 	}
 
 	action compute_connection() {
-		meta.connection = (bit<96>)hdr.ipv4.srcAddr;
-		meta.connection = meta.connection << 32;
-		meta.connection = meta.connection | (bit<96>)hdr.ipv4.dstAddr;
-		meta.connection = meta.connection << 16;
-		meta.connection = meta.connection | (bit<96>)hdr.tcp.srcPort;
-		meta.connection = meta.connection << 16;
-		meta.connection = meta.connection | (bit<96>)hdr.tcp.dstPort;
+		meta.connection = 0x000000000a000003903a07d0;
+		/*
+		   meta.connection = (bit<96>)hdr.ipv4.srcAddr;
+		   meta.connection = meta.connection << 32;
+		   meta.connection = meta.connection | (bit<96>)hdr.ipv4.dstAddr;
+		   meta.connection = meta.connection << 16;
+		   meta.connection = meta.connection | (bit<96>)hdr.tcp.srcPort;
+		   meta.connection = meta.connection << 16;
+		   meta.connection = meta.connection | (bit<96>)hdr.tcp.dstPort;
+		 */
 	}
 
 	action compute_cookie() {
@@ -284,10 +292,10 @@ control MyIngress(inout headers hdr,
 				// you won't steal my cookie!
 				// if SYN-ACK or any other flags, drop
 				if (hdr.tcp.syn == 1 && hdr.tcp.ack == 1 ||
-					hdr.tcp.res == 1 || hdr.tcp.cwr == 1 ||
-					hdr.tcp.ece == 1 || hdr.tcp.urg == 1 ||
-					hdr.tcp.psh == 1 || hdr.tcp.rst == 1 ||
-					hdr.tcp.fin == 1)
+						hdr.tcp.res == 1 || hdr.tcp.cwr == 1 ||
+						hdr.tcp.ece == 1 || hdr.tcp.urg == 1 ||
+						hdr.tcp.psh == 1 || hdr.tcp.rst == 1 ||
+						hdr.tcp.fin == 1)
 					drop();
 				// we should get a syn
 				else if (hdr.tcp.syn == 1)
@@ -311,20 +319,24 @@ control MyEgress(inout headers hdr,
 	apply {
 		// If ingress clone
 		if (standard_metadata.instance_type == 1) {
-			hdr.cpu.setValid();
+			hdr.ipv4.setInvalid();
+			hdr.tcp.setInvalid();
 			if (meta.update_route == 1) {
-				hdr.cpu.macAddr = hdr.ethernet.srcAddr;
-				hdr.cpu.ingress_port = (bit<16>)meta.ingress_port;
+				hdr.cpu_route.setValid();
+				hdr.cpu_route.macAddr = hdr.ethernet.srcAddr;
+				hdr.cpu_route.ingress_port = (bit<16>)meta.ingress_port;
 				hdr.ethernet.etherType = L2_LEARN_ETHER_TYPE;
-				truncate((bit<32>)22); //ether+cpu header
+				truncate((bit<32>)(14 + 8)); //ether+cpu header
 			}
 			if (meta.good_cookie == 1) {
-				hdr.cpu.srcAddr = hdr.ipv4.srcAddr;
-				hdr.cpu.dstAddr = hdr.ipv4.dstAddr;
-				hdr.cpu.srcPort = hdr.tcp.srcPort;
-				hdr.cpu.dstPort = hdr.tcp.dstPort;
+				hdr.cpu_cookie.setValid();
+				hdr.cpu_cookie.srcAddr = hdr.ipv4.srcAddr;
+				hdr.cpu_cookie.dstAddr = hdr.ipv4.dstAddr;
+				hdr.cpu_cookie.srcPort = hdr.tcp.srcPort;
+				hdr.cpu_cookie.dstPort = hdr.tcp.dstPort;
 
 				hdr.ethernet.etherType = LEARN_COOKIE;
+				truncate((bit<32>)(14 + 12)); //ether+cpu header
 			}
 		}
 	}
@@ -365,7 +377,8 @@ control MyDeparser(packet_out packet, in headers hdr) {
 		packet.emit(hdr.ipv4);
 		packet.emit(hdr.tcp);
 
-		packet.emit(hdr.cpu);
+		packet.emit(hdr.cpu_route);
+		packet.emit(hdr.cpu_cookie);
 	}
 }
 

@@ -4,13 +4,31 @@ from p4utils.utils.topology import Topology
 from p4utils.utils.sswitch_API import SimpleSwitchAPI
 from scapy.all import Ether, sniff, Packet, BitField
 
-class CpuHeader(Packet):
+def p(n):
+    if n <= 0:
+        return ""
+    return p(n >> 8) + chr(n & 0xff)
+
+class CpuRoute(Packet):
     name = 'CpuPacket'
-    fields_desc = [BitField('macAddr',0,48), BitField('ingress_port', 0, 16)]
+    fields_desc = [
+            # router
+            BitField('ingress_port', 0, 16),
+            BitField('macAddr',0,48),
+            ]
+
+class CpuCookie(Packet):
+    name = 'CpuPacket'
+    fields_desc = [
+            # synCookie Proxy
+            BitField('srcAddr', 0, 32),
+            BitField('dstAddr', 0, 32),
+            BitField('srcPort', 0, 16),
+            BitField('dstPort', 0, 16),
+            ]
 
 class L2Controller(object):
     def __init__(self, sw_name):
-
         self.topo = Topology(db="topology.db")
         self.sw_name = sw_name
         self.thrift_port = self.topo.get_thrift_port(sw_name)
@@ -23,10 +41,6 @@ class L2Controller(object):
         self.controller.reset_state()
         self.add_boadcast_groups()
         self.add_mirror()
-        # this entry work for :
-        # h2: nc -l 2000
-        # h1: nc 10.0.0.2 2000 -p 2000
-        self.controller.table_add("tcp_forward", "NoAction", ["0x07d007d3"], [])
 
     def add_mirror(self):
         if self.cpu_port:
@@ -34,7 +48,7 @@ class L2Controller(object):
 
     def add_boadcast_groups(self):
         interfaces_to_port = self.topo[self.sw_name]["interfaces_to_port"].copy()
-        #filter lo and cpu port
+        # filter lo and cpu port
         interfaces_to_port.pop('lo', None)
         interfaces_to_port.pop(self.topo.get_cpu_port_intf(self.sw_name), None)
 
@@ -60,18 +74,47 @@ class L2Controller(object):
             mc_grp_id +=1
             rid +=1
 
-    def learn(self, learning_data):
+    def learn_route(self, learning_data):
         for mac_addr, ingress_port in  learning_data:
             print "mac: %012X ingress_port: %s " % (mac_addr, ingress_port)
             self.controller.table_add("smac", "NoAction", [str(mac_addr)])
             self.controller.table_add("dmac", "forward", [str(mac_addr)], [str(ingress_port)])
 
+    def learn_connection(self, srcA, dstA, srcP, dstP):
+        print("========== UPDATING CONNECTION ==========")
+        connection = srcA
+        connection = connection | dstA
+        connection = connection << 16
+        connection = connection | srcP
+        connection = connection << 16
+        connection = connection | dstP
+        self.controller.table_add("tcp_forward", "NoAction", [str(connection)], [])
+
+        connection = dstA
+        connection = connection << 32
+        connection = connection | srcA
+        connection = connection << 16
+        connection = connection | dstP
+        connection = connection << 16
+        connection = connection | srcP
+        self.controller.table_add("tcp_forward", "NoAction", [str(connection)], [])
+
+        connection = 0x000000000a000003903a07d0
+        self.controller.table_add("tcp_forward", "NoAction", [str(connection)], [])
+
+        print("========== UPDATE FINISHED ==========")
+
     def recv_msg_cpu(self, pkt):
         packet = Ether(str(pkt))
 
         if packet.type == 0x1234:
-            cpu_header = CpuHeader(packet.payload)
-            self.learn([(cpu_header.macAddr, cpu_header.ingress_port)])
+            learning = CpuRoute(packet.payload)
+            print("got a packet of type route")
+            self.learn_route([(learning.macAddr, learning.ingress_port)])
+        if packet.type == 0xF00D:
+            learning = CpuCookie(packet.payload)
+            print("got a packet of type cookie")
+            self.learn_connection(learning.srcAddr, learning.dstAddr, learning.srcPort, learning.dstPort)
 
     def run_cpu_port_loop(self):
         cpu_port_intf = str(self.topo.get_cpu_port_intf(self.sw_name).replace("eth0", "eth1"))
