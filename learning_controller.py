@@ -83,6 +83,7 @@ class L2Controller(object):
     def learn_connection(self, srcA, dstA, srcP, dstP):
         print("========== UPDATING CONNECTION ==========")
         connection = srcA
+        connection = connection << 32
         connection = connection | dstA
         connection = connection << 16
         connection = connection | srcP
@@ -97,9 +98,6 @@ class L2Controller(object):
         connection = connection | dstP
         connection = connection << 16
         connection = connection | srcP
-        self.controller.table_add("tcp_forward", "NoAction", [str(connection)], [])
-
-        connection = 0x000000000a000003903a07d0
         self.controller.table_add("tcp_forward", "NoAction", [str(connection)], [])
 
         print("========== UPDATE FINISHED ==========")
