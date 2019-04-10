@@ -247,9 +247,10 @@ control MyIngress(inout headers hdr,
 
 		// =========== TCP ============
 		// first we'll update the checksum
-		bit<32> checksum = (bit<32>) hdr.tcp.checksum;
-		checksum = checksum + ~meta.cookie;
-		checksum = checksum + 0xFFEE; // MAGIC
+		bit<32> checksum = ~meta.cookie; // start with the cookie to avoid overflow
+		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
+		checksum = checksum + (bit<32>) hdr.tcp.checksum;
+		checksum = checksum + 0xFFEF; // MAGIC
 		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
 		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
 		hdr.tcp.checksum = (bit<16>) checksum;
