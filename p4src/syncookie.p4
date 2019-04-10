@@ -252,6 +252,7 @@ control MyIngress(inout headers hdr,
 		checksum = checksum + ~meta.cookie;
 		checksum = checksum + 0xFFEE; // MAGIC
 		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
+		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
 		hdr.tcp.checksum = (bit<16>) checksum;
 
 		// increment seqNo and move it to ackNo
@@ -323,9 +324,9 @@ control MyEgress(inout headers hdr,
 				hdr.cpu_route.macAddr = hdr.ethernet.srcAddr;
 				hdr.cpu_route.ingress_port = (bit<16>)meta.ingress_port;
 				hdr.ethernet.etherType = L2_LEARN_ETHER_TYPE;
-				truncate((bit<32>)(14 + 8)); //ether+cpu header
+				truncate((bit<32>)(14 + 8)); //ether+cpu router
 			}
-			if (meta.good_cookie == 1) {
+			else if (meta.good_cookie == 1) {
 				hdr.cpu_cookie.setValid();
 				hdr.cpu_cookie.srcAddr = hdr.ipv4.srcAddr;
 				hdr.cpu_cookie.dstAddr = hdr.ipv4.dstAddr;
@@ -333,7 +334,10 @@ control MyEgress(inout headers hdr,
 				hdr.cpu_cookie.dstPort = hdr.tcp.dstPort;
 
 				hdr.ethernet.etherType = LEARN_COOKIE;
-				truncate((bit<32>)(14 + 12)); //ether+cpu header
+				truncate((bit<32>)(14 + 12)); //ether+cpu cookie
+			}
+			else {
+				mark_to_drop();
 			}
 		}
 	}
