@@ -221,10 +221,9 @@ control MyIngress(inout headers hdr,
 		}
 		actions = {
 			NoAction;
-			drop;
 		}
 		size = 256;
-		default_action = drop;
+		default_action = NoAction;
 	}
 
 	action handle_syn() {
