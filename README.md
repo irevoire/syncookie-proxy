@@ -1,5 +1,25 @@
 # Syncookie Proxy
 
+## Strategy 4: After establishing the connection, forward the ACK to Bob reconstruct the session
+
+![sequence diagram of the strategy](images/strategy.png)
+
+1. Alice send SYN
+2. Proxy send SYN-ACK with a cookie representing the connection in the Sequence Number
+3. Alice send ACK
+4. If the cookie is still in the Acknowledgment Number then the proxy validate the connection
+5. The proxy send the ACK to Bob
+4. Bob reconstruct the session from the ACK
+
+-------------
+
+* Once the connection is established the proxy don't need to do anything
+* **Remark**: Works only with a recent kernel (3.5 for linux)
+* Works with all methods of calculating the cookie
+* Bob need the informations about the MSS, window size, SACK and the timestamp to reconstruct the session. We need to store these informations in the cookie:
+	* https://lwn.net/Articles/495304/
+	* https://lwn.net/Articles/493983/
+
 ## Introduction
 
 In this repository we'll see if p4 seems suitable to implement a Syncookie Proxy.
