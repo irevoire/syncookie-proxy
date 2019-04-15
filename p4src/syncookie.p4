@@ -270,12 +270,47 @@ control MyIngress(inout headers hdr,
 	}
 
 	action handle_ack() {
-		// we must save the connection as a safe one
+		// =========== CPU ============
 		meta.good_cookie = 1;
 		clone3(CloneType.I2E, 100, meta);
 
-		// we do nothing else because we expect the recipient
-		// to handle everything (increment ack, swap port etc...)
+		// =========== PHY ============
+		// send the packet back to the source
+		standard_metadata.egress_spec = standard_metadata.ingress_port;
+
+		// =========== MAC ============
+		// swap src / dst addr
+		macAddr_t macaddr = hdr.ethernet.srcAddr;
+		hdr.ethernet.srcAddr = hdr.ethernet.dstAddr;
+		hdr.ethernet.dstAddr = macaddr;
+
+		// =========== IP ============
+		// swap src / dst addr
+		ip4Addr_t ipaddr = hdr.ipv4.srcAddr;
+		hdr.ipv4.srcAddr = hdr.ipv4.dstAddr;
+		hdr.ipv4.dstAddr = ipaddr;
+
+		hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
+
+		// =========== TCP ============
+		bit<32> checksum = hdr.tcp.seqNo;
+		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
+		checksum = checksum + (bit<32>) hdr.tcp.checksum;
+		checksum = checksum + 0x000D; // MAGIC
+		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
+		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
+		hdr.tcp.checksum = (bit<16>) checksum;
+
+		hdr.tcp.seqNo = hdr.tcp.ackNo;
+		hdr.tcp.ackNo = 0; // remove the ack
+
+		hdr.tcp.ack = 0;
+		hdr.tcp.rst = 1;
+
+		// swap src / dst port
+		bit<16> tcpport = hdr.tcp.srcPort;
+		hdr.tcp.srcPort = hdr.tcp.dstPort;
+		hdr.tcp.dstPort = tcpport;
 	}
 
 	apply {
