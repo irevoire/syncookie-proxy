@@ -246,19 +246,20 @@ control MyIngress(inout headers hdr,
 		hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
 
 		// =========== TCP ============
-		// first we'll update the checksum
-		bit<32> checksum = ~meta.cookie; // start with the cookie to avoid overflow
+		bit<32> checksum = ~meta.cookie;
 		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
+		checksum = checksum + ((hdr.tcp.seqNo & 0xFFFF0000) >> 16);
+		checksum = checksum + (hdr.tcp.seqNo & 0x0000FFFF);
 		checksum = checksum + (bit<32>) hdr.tcp.checksum;
-		checksum = checksum + 0xFFEF; // MAGIC
+		checksum = checksum + 0x7B6C; // MAGIC
 		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
 		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
 		hdr.tcp.checksum = (bit<16>) checksum;
 
-		// increment seqNo and move it to ackNo
-		hdr.tcp.ackNo = hdr.tcp.seqNo + 1;
-		// store the cookie into our seqNo
-		hdr.tcp.seqNo = meta.cookie;
+		// put the cookie in the ackNo to force the client to send a RST
+		hdr.tcp.ackNo = meta.cookie;
+		// send some shit / whatever
+		hdr.tcp.seqNo = 0x42424242; // !!! magic was calculated with this number
 		// set the tcp flags to SYN-ACK
 		hdr.tcp.ack = 1;
 
@@ -269,13 +270,12 @@ control MyIngress(inout headers hdr,
 
 	}
 
-	action handle_ack() {
+	action handle_rst() {
 		// we must save the connection as a safe one
 		meta.good_cookie = 1;
 		clone3(CloneType.I2E, 100, meta);
-
-		// we do nothing else because we expect the recipient
-		// to handle everything (increment ack, swap port etc...)
+		drop();
+		// we do nothing else because we expect the sender to start a new connection
 	}
 
 	apply {
@@ -288,20 +288,22 @@ control MyIngress(inout headers hdr,
 			if (!tcp_forward.apply().hit) {
 				compute_cookie();
 				// you won't steal my cookie!
-				// if SYN-ACK or any other flags, drop
-				if (hdr.tcp.syn == 1 && hdr.tcp.ack == 1 ||
+				// if SYN-RST or any other flags, drop
+				if (hdr.tcp.syn == 1 && hdr.tcp.rst == 1 ||
 						hdr.tcp.res == 1 || hdr.tcp.cwr == 1 ||
 						hdr.tcp.ece == 1 || hdr.tcp.urg == 1 ||
-						hdr.tcp.psh == 1 || hdr.tcp.rst == 1 ||
+						hdr.tcp.psh == 1 || hdr.tcp.ack == 1 ||
 						hdr.tcp.fin == 1)
 					drop();
 				// we should get a syn
 				else if (hdr.tcp.syn == 1)
 					handle_syn();
 				// or has the communication already started?
-				else if ( (hdr.tcp.ack == 1) &&
-						((hdr.tcp.ackNo - 1) == meta.cookie))
-					handle_ack();
+				else if ( (hdr.tcp.rst == 1) &&
+						(hdr.tcp.seqNo == meta.cookie) )
+					handle_rst();
+				else // cookie is not good
+					drop();
 			}
 		}
 	}
