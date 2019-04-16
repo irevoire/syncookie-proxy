@@ -1,0 +1,11 @@
+-- diagram on https://sequencediagram.org/ --
+title TCP SYN cookie proxy, RST to reinitiate connection
+ 
+Alice->(2)Proxy:SYN (S#:n; A#:null)
+Proxy->(2)Alice:SYN-ACK (S#:cookie; A#:n+1)
+Alice->(2)Proxy:ACK(S#:n+1, A#:cookie+1)
+Proxy->Proxy:Validate cookie
+Proxy->(2)Alice:RST(S#:cookie+1, A#:null)
+Alice->(2)Bob:SYN (S#:p; A#:null)
+Bob->(2)Alice:SYN-ACK (S#:q; A#:p+1)
+Alice->(2)Bob:ACK(S#:p+1, A#:q+1)
