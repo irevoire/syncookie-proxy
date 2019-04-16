@@ -1,0 +1,10 @@
+# diagram on https://sequencediagram.org/ --
+title TCP SYN cookie proxy, safe reset method
+
+Alice->(2)Proxy:SYN (S#:n; A#:null)
+Proxy->(2)Alice:SYN-ACK (S#:anything; A#:cookie)
+Alice->(2)Proxy:RST(S#:cookie, A#:null)
+Proxy->Proxy:Validate connection\n by retrieving bogus\n ACK number in RST
+Alice->(2)Bob:SYN (S#:p; A#:null)
+Bob->(2)Alice:SYN-ACK (S#:q; A#:p+1)
+Alice->(2)Bob:ACK(S#:p+1, A#:q+1)
