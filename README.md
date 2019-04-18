@@ -1,5 +1,24 @@
 # Syncookie Proxy
 
+## Strategy 4: After establishing the connection, forward the ACK to Bob reconstruct the session
+
+![sequence diagram of the strategy](images/strategy.png)
+
+1. Alice send SYN
+2. Proxy send SYN-ACK with a cookie representing the connection in the Sequence Number
+3. Alice send ACK
+4. If the cookie is still in the Acknowledgment Number then the proxy validate the connection and will start establishing a new connection with Bob
+5. The proxy send SYN to Bob with the same Sequence Number as Alice
+4. Bob send SYN-ACK with his own Sequence Number
+5. The proxy memorize the diff between the two Sequences Numbers
+6. The proxy send a ACK and let consider the connection as established
+7. everytime a frame pass throught the proxy, it'll patch the Sequence / Acknowledgment Number to match with each connection
+
+-------------
+
+* Works with all clients
+* Works with all methods of calculating the cookie
+
 ## Introduction
 
 In this repository we'll see if p4 seems suitable to implement a Syncookie Proxy.
