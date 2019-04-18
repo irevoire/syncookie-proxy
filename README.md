@@ -12,7 +12,7 @@
 4. Bob send SYN-ACK with his own Sequence Number
 5. The proxy memorize the diff between the two Sequences Numbers
 6. The proxy send a ACK and let consider the connection as established
-7. everytime a frame pass throught the proxy, it'll patch the Sequence / Acknowledgment Number to match with each connection
+7. everytime a frame pass through the proxy, it'll patch the Sequence / Acknowledgment Number to match with each connection
 
 -------------
 
