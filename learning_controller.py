@@ -25,6 +25,8 @@ class CpuCookie(Packet):
             BitField('dstAddr', 0, 32),
             BitField('srcPort', 0, 16),
             BitField('dstPort', 0, 16),
+
+            BitField('offset', 0, 32),
             ]
 
 class L2Controller(object):
@@ -80,8 +82,19 @@ class L2Controller(object):
             self.controller.table_add("smac", "NoAction", [str(mac_addr)])
             self.controller.table_add("dmac", "forward", [str(mac_addr)], [str(ingress_port)])
 
-    def learn_connection(self, srcA, dstA, srcP, dstP):
-        print("========== UPDATING CONNECTION ==========")
+    def save_pre_connection(self, srcA, dstA, srcP, dstP, offset):
+        # we save the connection in reverse because we know it's B who's gonna answer
+        connection = dstA
+        connection = connection << 32
+        connection = connection | srcA
+        connection = connection << 16
+        connection = connection | dstP
+        connection = connection << 16
+        connection = connection | srcP
+        self.controller.table_add("syn_ack", "handle_syn_ack",
+                [str(connection)], [str(offset)])
+
+    def save_connection(self, srcA, dstA, srcP, dstP, offset):
         connection = srcA
         connection = connection << 32
         connection = connection | dstA
@@ -89,7 +102,8 @@ class L2Controller(object):
         connection = connection | srcP
         connection = connection << 16
         connection = connection | dstP
-        self.controller.table_add("tcp_forward", "NoAction", [str(connection)], [])
+        self.controller.table_add("tcp_forward", "update_seqNo",
+                [str(connection)], [str(offset)])
 
         connection = dstA
         connection = connection << 32
@@ -98,21 +112,21 @@ class L2Controller(object):
         connection = connection | dstP
         connection = connection << 16
         connection = connection | srcP
-        self.controller.table_add("tcp_forward", "NoAction", [str(connection)], [])
-
-        print("========== UPDATE FINISHED ==========")
+        self.controller.table_add("tcp_forward", "update_ackNo",
+                [str(connection)], [str(offset)])
 
     def recv_msg_cpu(self, pkt):
         packet = Ether(str(pkt))
 
         if packet.type == 0x1234:
             learning = CpuRoute(packet.payload)
-            print("got a packet of type route")
             self.learn_route([(learning.macAddr, learning.ingress_port)])
-        if packet.type == 0xF00D:
+        elif packet.type == 0xF00D: # pre connection
             learning = CpuCookie(packet.payload)
-            print("got a packet of type cookie")
-            self.learn_connection(learning.srcAddr, learning.dstAddr, learning.srcPort, learning.dstPort)
+            self.save_pre_connection(learning.srcAddr, learning.dstAddr, learning.srcPort, learning.dstPort, learning.offset)
+        elif packet.type == 0xCACA: # pre connection
+            learning = CpuCookie(packet.payload)
+            self.save_connection(learning.srcAddr, learning.dstAddr, learning.srcPort, learning.dstPort, learning.offset)
 
     def run_cpu_port_loop(self):
         cpu_port_intf = str(self.topo.get_cpu_port_intf(self.sw_name).replace("eth0", "eth1"))

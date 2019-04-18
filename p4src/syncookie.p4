@@ -4,7 +4,8 @@
 
 const bit<16> TYPE_IPV4 = 0x800;
 const bit<16> L2_LEARN_ETHER_TYPE = 0x1234;
-const bit<16> LEARN_COOKIE = 0xF00D;
+const bit<16> SAVE_PRE_CONNECTION = 0xF00D;
+const bit<16> SAVE_CONNECTION = 0xCACA;
 
 /*************************************************************************
  *********************** H E A D E R S  ***********************************
@@ -62,21 +63,28 @@ header cpu_route_t {
 	macAddr_t macAddr;      // 6
 }
 
-header cpu_cookie_t {
-	// synCookie Proxy
+header cpu_connection_t {
+	// save connection
 	ip4Addr_t srcAddr; // 4
 	ip4Addr_t dstAddr; // 4
 	bit<16>   srcPort; // 2
 	bit<16>   dstPort; // 2
+	bit<32>   offset;  // 4
 }
 
 struct metadata {
-	bit<16> cs_word;
-
+	// condition
 	bit<1>  update_route;
-	bit<1>  good_cookie;
+	bit<1>  save_pre_connection;
+	bit<1>  save_connection;
 
+	// learn routing
 	bit<9>  ingress_port;
+
+	// learn connection
+	bit<32> offset;
+
+	// metadata
 	bit<32> cookie;
 	bit<96> connection; // two ip address (32 * 2) + two ports (16 * 2)
 }
@@ -87,7 +95,7 @@ struct headers {
 	tcp_t      tcp;
 
 	cpu_route_t      cpu_route;
-	cpu_cookie_t     cpu_cookie;
+	cpu_connection_t     cpu_connection;
 }
 
 /*************************************************************************
@@ -198,6 +206,7 @@ control MyIngress(inout headers hdr,
 		default_action = NoAction;
 	}
 
+	// ============ SYN COOKIE PROXY ============
 	action compute_connection() {
 		meta.connection = (bit<96>)hdr.ipv4.srcAddr;
 		meta.connection = meta.connection << 32;
@@ -215,11 +224,36 @@ control MyIngress(inout headers hdr,
 		meta.cookie = meta.cookie ^ hdr.ipv4.dstAddr;
 	}
 
+	action update_seqNo(bit<32> offset) {
+		bit<32> checksum = ~offset;
+		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
+		checksum = checksum + (bit<32>) hdr.tcp.checksum;
+		checksum = checksum + 1; // magic
+		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
+		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
+		hdr.tcp.checksum = (bit<16>) checksum;
+
+		hdr.tcp.seqNo = hdr.tcp.seqNo + offset;
+	}
+
+	action update_ackNo(bit<32> offset) {
+		bit<32> checksum = offset;
+		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
+		checksum = checksum + (bit<32>) hdr.tcp.checksum;
+		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
+		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
+		hdr.tcp.checksum = (bit<16>) checksum;
+
+		hdr.tcp.ackNo = hdr.tcp.ackNo - offset;
+	}
+
 	table tcp_forward {
 		key = {
 			meta.connection: exact;
 		}
 		actions = {
+			update_seqNo;
+			update_ackNo;
 			NoAction;
 		}
 		size = 256;
@@ -247,7 +281,7 @@ control MyIngress(inout headers hdr,
 
 		// =========== TCP ============
 		// first we'll update the checksum
-		bit<32> checksum = ~meta.cookie; // start with the cookie to avoid overflow
+		bit<32> checksum = ~meta.cookie;
 		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
 		checksum = checksum + (bit<32>) hdr.tcp.checksum;
 		checksum = checksum + 0xFFEF; // MAGIC
@@ -266,16 +300,45 @@ control MyIngress(inout headers hdr,
 		bit<16> tcpport = hdr.tcp.srcPort;
 		hdr.tcp.srcPort = hdr.tcp.dstPort;
 		hdr.tcp.dstPort = tcpport;
-
 	}
 
+	/*
+	 * We have validated the cookie. A is a real client.
+	 * Now we want to start a new connection with B, we send
+	 * him a new SYN and save his Sequence Number for later.
+	 */
 	action handle_ack() {
 		// =========== CPU ============
-		meta.good_cookie = 1;
+		meta.save_pre_connection = 1;
+		meta.offset = hdr.tcp.ackNo - 1; // we could also get the cookie
+		clone3(CloneType.I2E, 100, meta);
+
+		// =========== IP ============
+		hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
+
+		// =========== TCP ============
+		bit<32> checksum = hdr.tcp.ackNo;
+		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
+		checksum = checksum + (bit<32>) hdr.tcp.checksum;
+		checksum = checksum + 0x000F; // MAGIC
+		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
+		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
+		hdr.tcp.checksum = (bit<16>) checksum;
+
+		hdr.tcp.seqNo = hdr.tcp.seqNo - 1;
+		hdr.tcp.ackNo = 0; // remove the ack (cookie)
+
+		hdr.tcp.ack = 0;
+		hdr.tcp.syn = 1;
+	}
+
+	action handle_syn_ack(bit<32> old_ackNo) {
+		// =========== CPU ============
+		meta.save_connection = 1;
+		meta.offset = old_ackNo - hdr.tcp.seqNo - 1; // -1 for alignment
 		clone3(CloneType.I2E, 100, meta);
 
 		// =========== PHY ============
-		// send the packet back to the source
 		standard_metadata.egress_spec = standard_metadata.ingress_port;
 
 		// =========== MAC ============
@@ -293,24 +356,36 @@ control MyIngress(inout headers hdr,
 		hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
 
 		// =========== TCP ============
-		bit<32> checksum = hdr.tcp.seqNo;
-		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
-		checksum = checksum + (bit<32>) hdr.tcp.checksum;
-		checksum = checksum + 0x000D; // MAGIC
-		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
+		bit<32> checksum = (bit<32>) hdr.tcp.checksum;
+		checksum = checksum + 1; // seqNo + 1
 		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
 		hdr.tcp.checksum = (bit<16>) checksum;
 
+		// swap seqNo et ackNo
+		bit<32> seqNo = hdr.tcp.seqNo;
 		hdr.tcp.seqNo = hdr.tcp.ackNo;
-		hdr.tcp.ackNo = 0; // remove the ack
+		hdr.tcp.ackNo = seqNo + 1;
 
-		hdr.tcp.ack = 0;
-		hdr.tcp.rst = 1;
+		hdr.tcp.ack = 1; // useless
+		hdr.tcp.syn = 0;
 
 		// swap src / dst port
 		bit<16> tcpport = hdr.tcp.srcPort;
 		hdr.tcp.srcPort = hdr.tcp.dstPort;
 		hdr.tcp.dstPort = tcpport;
+	}
+
+	table syn_ack {
+		key = {
+			meta.connection: exact;
+		}
+
+		actions = {
+			handle_syn_ack;
+			drop;
+		}
+		size = 256;
+		default_action = drop;
 	}
 
 	apply {
@@ -324,19 +399,23 @@ control MyIngress(inout headers hdr,
 				compute_cookie();
 				// you won't steal my cookie!
 				// if SYN-ACK or any other flags, drop
-				if (hdr.tcp.syn == 1 && hdr.tcp.ack == 1 ||
-						hdr.tcp.res == 1 || hdr.tcp.cwr == 1 ||
+				if (hdr.tcp.res == 1 || hdr.tcp.cwr == 1 ||
 						hdr.tcp.ece == 1 || hdr.tcp.urg == 1 ||
 						hdr.tcp.psh == 1 || hdr.tcp.rst == 1 ||
 						hdr.tcp.fin == 1)
 					drop();
+				// connection started with B
+				else if (hdr.tcp.syn == 1 && hdr.tcp.ack == 1)
+					syn_ack.apply();
 				// we should get a syn
 				else if (hdr.tcp.syn == 1)
 					handle_syn();
 				// or has the communication already started?
-				else if ( (hdr.tcp.ack == 1) &&
+				else if ((hdr.tcp.ack == 1) &&
 						((hdr.tcp.ackNo - 1) == meta.cookie))
 					handle_ack();
+				else
+					drop();
 			}
 		}
 	}
@@ -361,15 +440,29 @@ control MyEgress(inout headers hdr,
 				hdr.ethernet.etherType = L2_LEARN_ETHER_TYPE;
 				truncate((bit<32>)(14 + 8)); //ether+cpu router
 			}
-			else if (meta.good_cookie == 1) {
-				hdr.cpu_cookie.setValid();
-				hdr.cpu_cookie.srcAddr = hdr.ipv4.srcAddr;
-				hdr.cpu_cookie.dstAddr = hdr.ipv4.dstAddr;
-				hdr.cpu_cookie.srcPort = hdr.tcp.srcPort;
-				hdr.cpu_cookie.dstPort = hdr.tcp.dstPort;
+			else if (meta.save_pre_connection == 1) {
+				hdr.cpu_connection.setValid();
+				hdr.cpu_connection.srcAddr = hdr.ipv4.srcAddr;
+				hdr.cpu_connection.dstAddr = hdr.ipv4.dstAddr;
+				hdr.cpu_connection.srcPort = hdr.tcp.srcPort;
+				hdr.cpu_connection.dstPort = hdr.tcp.dstPort;
 
-				hdr.ethernet.etherType = LEARN_COOKIE;
-				truncate((bit<32>)(14 + 12)); //ether+cpu cookie
+				hdr.cpu_connection.offset = meta.offset;
+
+				hdr.ethernet.etherType = SAVE_PRE_CONNECTION;
+				truncate((bit<32>)(14 + 16)); //ether+cpu cookie
+			}
+			else if (meta.save_connection == 1) {
+				hdr.cpu_connection.setValid();
+				hdr.cpu_connection.srcAddr = hdr.ipv4.srcAddr;
+				hdr.cpu_connection.dstAddr = hdr.ipv4.dstAddr;
+				hdr.cpu_connection.srcPort = hdr.tcp.srcPort;
+				hdr.cpu_connection.dstPort = hdr.tcp.dstPort;
+
+				hdr.cpu_connection.offset = meta.offset + 1;
+
+				hdr.ethernet.etherType = SAVE_CONNECTION;
+				truncate((bit<32>)(14 + 16)); //ether+cpu cookie
 			}
 			else {
 				mark_to_drop();
@@ -414,7 +507,7 @@ control MyDeparser(packet_out packet, in headers hdr) {
 		packet.emit(hdr.tcp);
 
 		packet.emit(hdr.cpu_route);
-		packet.emit(hdr.cpu_cookie);
+		packet.emit(hdr.cpu_connection);
 	}
 }
 
