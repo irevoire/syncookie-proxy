@@ -248,18 +248,16 @@ control MyIngress(inout headers hdr,
 		// =========== TCP ============
 		bit<32> checksum = ~meta.cookie;
 		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
-		checksum = checksum + ((hdr.tcp.seqNo & 0xFFFF0000) >> 16);
-		checksum = checksum + (hdr.tcp.seqNo & 0x0000FFFF);
 		checksum = checksum + (bit<32>) hdr.tcp.checksum;
-		checksum = checksum + 0x7B6C; // MAGIC
+		checksum = checksum + 0xFFF1; // MAGIC
 		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
 		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
 		hdr.tcp.checksum = (bit<16>) checksum;
 
+		// send some a bad sequence number
+		hdr.tcp.seqNo = hdr.tcp.seqNo - 1; // !!! magic was calculated with this number
 		// put the cookie in the ackNo to force the client to send a RST
 		hdr.tcp.ackNo = meta.cookie;
-		// send some shit / whatever
-		hdr.tcp.seqNo = 0x42424242; // !!! magic was calculated with this number
 		// set the tcp flags to SYN-ACK
 		hdr.tcp.ack = 1;
 
