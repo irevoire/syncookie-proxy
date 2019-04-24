@@ -56,6 +56,28 @@ header tcp_t{
 	bit<16> urgentPtr;
 }
 
+header tcp_option_mss_t {
+	bit<8>  type; // must be 2
+	bit<8>  len; // must be 4
+	bit<16> value;
+}
+
+header tcp_option_sack_permitted_t {
+	bit<8> type; // must be 4
+	bit<8> len; // must be 2
+	bit<8> shift_count;
+}
+
+header tcp_option_window_scale_t {
+	bit<8> type; // must be 3
+	bit<8> len; // must be 3
+	bit<8> shift_count;
+}
+
+header tcp_option_nop_t {
+	bit<8> type; // must be 1
+}
+
 header cpu_route_t {
 	// router
 	bit<16>   ingress_port; // 2
@@ -82,22 +104,44 @@ struct metadata {
 }
 
 struct headers {
-	ethernet_t ethernet;
-	ipv4_t     ipv4;
-	tcp_t      tcp;
+	ethernet_t                  ethernet;
+	ipv4_t                      ipv4;
+	tcp_t                       tcp;
+	tcp_option_mss_t            mss;
+	tcp_option_sack_permitted_t sack;
+	tcp_option_window_scale_t   window;
+	tcp_option_nop_t            nop1;
+	tcp_option_nop_t            nop2;
+	tcp_option_nop_t            nop3;
 
-	cpu_route_t      cpu_route;
-	cpu_cookie_t     cpu_cookie;
+	cpu_route_t                 cpu_route;
+	cpu_cookie_t                cpu_cookie;
 }
 
 /*************************************************************************
- *********************** P A R S E R  ***********************************
+ ************************* E R R O R  ************************************
+ *************************************************************************/
+
+error {
+	TcpOptionTooLong
+	/*
+	TcpOptionBadMssSize,
+	TcpOptionBadSackSize,
+	TcpOptionBadWindowSclSize,
+	*/
+}
+
+/*************************************************************************
+ ************************ P A R S E R  ***********************************
  *************************************************************************/
 
 parser MyParser(packet_in packet,
 		out headers hdr,
 		inout metadata meta,
 		inout standard_metadata_t standard_metadata) {
+	bit<32> option_size = 0;
+
+
 	state start {
 		transition ethernet;
 	}
@@ -120,7 +164,60 @@ parser MyParser(packet_in packet,
 
 	state parse_tcp {
 		packet.extract(hdr.tcp);
-		transition accept;
+		option_size = ((bit<32>) hdr.tcp.dataOffset) * 4; // *4 to get bytes
+		transition parse_tcp_option_check_size;
+	}
+
+	state parse_tcp_option_check_size {
+		transition select (option_size) {
+			0: accept;
+			default: parse_tcp_option;
+		}
+	}
+
+	state parse_tcp_option {
+		transition select(packet.lookahead<bit<8>>()) {
+			1: parse_tcp_option_nop;
+			2: parse_tcp_option_mss;
+			3: parse_tcp_option_window_scale;
+			4: parse_tcp_option_sack_permitted;
+			default: parse_tcp_unkown;
+		}
+	}
+
+	state parse_tcp_unkown {
+		packet.advance(8); // skip the type
+
+		bit<8> tmp;
+		tmp = packet.lookahead<bit<8>>(); // get the size in bytes
+		option_size = option_size - (bit<32>) tmp;
+
+		packet.advance((bit<32>)(tmp - 2)); // skip the content of the option
+		transition parse_tcp_option_check_size;
+	}
+
+	state parse_tcp_option_nop {
+		packet.advance(8);
+		option_size = option_size - 1;
+		transition parse_tcp_option_check_size;
+	}
+
+	state parse_tcp_option_mss {
+		packet.extract(hdr.mss);
+		option_size = option_size - 4;
+		transition parse_tcp_option;
+	}
+
+	state parse_tcp_option_sack_permitted {
+		packet.extract(hdr.sack);
+		option_size = option_size - 2;
+		transition parse_tcp_option;
+	}
+
+	state parse_tcp_option_window_scale {
+		packet.extract(hdr.window);
+		option_size = option_size - 3;
+		transition parse_tcp_option;
 	}
 }
 
@@ -265,7 +362,6 @@ control MyIngress(inout headers hdr,
 		bit<16> tcpport = hdr.tcp.srcPort;
 		hdr.tcp.srcPort = hdr.tcp.dstPort;
 		hdr.tcp.dstPort = tcpport;
-
 	}
 
 	action handle_rst() {
