@@ -1,3 +1,5 @@
+#include "headers.p4"
+
 parser tcp_option_parser(packet_in packet,
 		out headers hdr) {
 	bit<32> option_size = 0;
