@@ -36,13 +36,13 @@ parser tcp_option_parser(packet_in packet,
 	}
 
 	state parse_tcp_unkown {
-		// packet.advance(8); // skip the type
+		packet.advance(8); // skip the type
 
 		bit<8> tmp;
 		tmp = packet.lookahead<bit<8>>(); // get the size in bytes
 		option_size = option_size - (bit<32>) tmp;
 
-		packet.advance((bit<32>)(tmp - 2) * 8); // skip the content
+		packet.advance((bit<32>)(tmp - 1) * 8); // skip the content
 		transition parse_tcp_option_check_size;
 	}
 
