@@ -56,7 +56,6 @@ header tcp_option_mss_t {
 header tcp_option_sack_permitted_t {
 	bit<8> type; // must be 4
 	bit<8> len; // must be 2
-	bit<8> shift_count;
 }
 
 header tcp_option_window_scale_t {
