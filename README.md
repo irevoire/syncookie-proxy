@@ -1,6 +1,6 @@
 # Syncookie Proxy
 
-## Strategy 4: After establishing the connection, forward the ACK to Bob reconstruct the session
+## Strategy 1: After establishing the connection, forward the ACK to Bob reconstruct the session
 
 ![sequence diagram of the strategy](images/strategy.png)
 
