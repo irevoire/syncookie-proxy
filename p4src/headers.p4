@@ -69,6 +69,15 @@ header tcp_option_nop_t {
 	bit<8> type; // must be 1
 }
 
+struct tcp_option_t {
+	tcp_option_mss_t            mss;
+	tcp_option_sack_permitted_t sack;
+	tcp_option_window_scale_t   window;
+	tcp_option_nop_t            nop1;
+	tcp_option_nop_t            nop2;
+	tcp_option_nop_t            nop3;
+}
+
 header cpu_route_t {
 	// router
 	bit<16>   ingress_port; // 2
@@ -95,18 +104,15 @@ struct metadata {
 }
 
 struct headers {
-	ethernet_t                  ethernet;
-	ipv4_t                      ipv4;
-	tcp_t                       tcp;
-	tcp_option_mss_t            mss;
-	tcp_option_sack_permitted_t sack;
-	tcp_option_window_scale_t   window;
-	tcp_option_nop_t            nop1;
-	tcp_option_nop_t            nop2;
-	tcp_option_nop_t            nop3;
+	ethernet_t   ethernet;
 
-	cpu_route_t                 cpu_route;
-	cpu_cookie_t                cpu_cookie;
+	cpu_route_t  cpu_route;
+	cpu_cookie_t cpu_cookie;
+
+	ipv4_t       ipv4;
+
+	tcp_t        tcp;
+	tcp_option_t tcp_opt;
 }
 
 #endif /* _HEADER_P4_ */

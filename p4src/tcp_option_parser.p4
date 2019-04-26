@@ -1,11 +1,20 @@
 #include "headers.p4"
 
+error {
+	TcpOptionTooLong,
+	TcpOptionBadMssSize,
+	TcpOptionBadSackSize,
+	TcpOptionBadWindowSclSize
+}
+
 parser tcp_option_parser(packet_in packet,
-		out headers hdr) {
+		in bit<4> dataOffset,
+		out tcp_option_t opt) {
 	bit<32> option_size = 0;
 
 	state start {
-		option_size = ((bit<32>) hdr.tcp.dataOffset) * 4; // *4 to get bytes
+		option_size = ((bit<32>) dataOffset) * 4; // *4 to get bytes
+		option_size = option_size - 20; // to remove the size of the tcp hdr
 		transition parse_tcp_option_check_size;
 	}
 
@@ -27,38 +36,41 @@ parser tcp_option_parser(packet_in packet,
 	}
 
 	state parse_tcp_unkown {
-		packet.advance(8); // skip the type
+		// packet.advance(8); // skip the type
 
 		bit<8> tmp;
 		tmp = packet.lookahead<bit<8>>(); // get the size in bytes
 		option_size = option_size - (bit<32>) tmp;
 
-		packet.advance((bit<32>)(tmp - 2)); // skip the content of the option
+		packet.advance((bit<32>)(tmp - 2) * 8); // skip the content
 		transition parse_tcp_option_check_size;
 	}
 
 	state parse_tcp_option_nop {
-		packet.advance(8);
+		packet.advance(8); // skip the nop
 		option_size = option_size - 1;
 		transition parse_tcp_option_check_size;
 	}
 
 	state parse_tcp_option_mss {
-		packet.extract(hdr.mss);
+		packet.extract(opt.mss);
+		verify(opt.mss.len == 4, error.TcpOptionBadMssSize);
 		option_size = option_size - 4;
-		transition parse_tcp_option;
+		transition parse_tcp_option_check_size;
 	}
 
 	state parse_tcp_option_sack_permitted {
-		packet.extract(hdr.sack);
+		packet.extract(opt.sack);
+		verify(opt.sack.len == 2, error.TcpOptionBadSackSize);
 		option_size = option_size - 2;
-		transition parse_tcp_option;
+		transition parse_tcp_option_check_size;
 	}
 
 	state parse_tcp_option_window_scale {
-		packet.extract(hdr.window);
+		packet.extract(opt.window);
+		verify(opt.window.len == 3, error.TcpOptionBadWindowSclSize);
 		option_size = option_size - 3;
-		transition parse_tcp_option;
+		transition parse_tcp_option_check_size;
 	}
 
 }

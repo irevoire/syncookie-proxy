@@ -9,17 +9,9 @@ const bit<16> TYPE_IPV4 = 0x800;
 const bit<16> L2_LEARN_ETHER_TYPE = 0x1234;
 const bit<16> LEARN_COOKIE = 0xF00D;
 
-
 /*************************************************************************
  ************************* E R R O R  ************************************
  *************************************************************************/
-
-error {
-	TcpOptionTooLong,
-	TcpOptionBadMssSize,
-	TcpOptionBadSackSize,
-	TcpOptionBadWindowSclSize
-}
 
 
 /*************************************************************************
@@ -53,7 +45,7 @@ parser MyParser(packet_in packet,
 
 	state parse_tcp {
 		packet.extract(hdr.tcp);
-		tcp_option_parser.apply(packet, hdr);
+		tcp_option_parser.apply(packet, hdr.tcp.dataOffset, hdr.tcp_opt);
 		transition accept;
 	}
 }
@@ -177,8 +169,6 @@ control MyIngress(inout headers hdr,
 		hdr.ipv4.srcAddr = hdr.ipv4.dstAddr;
 		hdr.ipv4.dstAddr = ipaddr;
 
-		hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
-
 		// =========== TCP ============
 		bit<32> checksum = ~meta.cookie;
 		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
@@ -200,9 +190,11 @@ control MyIngress(inout headers hdr,
 		hdr.tcp.srcPort = hdr.tcp.dstPort;
 		hdr.tcp.dstPort = tcpport;
 
-		hdr.nop1.setValid();
-		hdr.nop2.setValid();
-		hdr.nop3.setValid();
+/*
+		hdr.tcp_opt.nop1.setValid();
+		hdr.tcp_opt.nop2.setValid();
+		hdr.tcp_opt.nop3.setValid();
+		*/
 	}
 
 	action handle_rst() {
@@ -218,6 +210,7 @@ control MyIngress(inout headers hdr,
 		if (!dmac.apply().hit) {
 			broadcast.apply();
 		}
+		hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
 		if (hdr.tcp.isValid()) {
 			compute_connection();
 			if (!tcp_forward.apply().hit) {
@@ -254,9 +247,8 @@ control MyEgress(inout headers hdr,
 	apply {
 		// If ingress clone
 		if (standard_metadata.instance_type == 1) {
-			hdr.ipv4.setInvalid();
-			hdr.tcp.setInvalid();
 			if (meta.update_route == 1) {
+				hdr.ethernet.setValid();
 				hdr.cpu_route.setValid();
 				hdr.cpu_route.macAddr = hdr.ethernet.srcAddr;
 				hdr.cpu_route.ingress_port = (bit<16>)meta.ingress_port;
@@ -264,6 +256,7 @@ control MyEgress(inout headers hdr,
 				truncate((bit<32>)(14 + 8)); //ether+cpu router
 			}
 			else if (meta.good_cookie == 1) {
+				hdr.ethernet.setValid();
 				hdr.cpu_cookie.setValid();
 				hdr.cpu_cookie.srcAddr = hdr.ipv4.srcAddr;
 				hdr.cpu_cookie.dstAddr = hdr.ipv4.dstAddr;
@@ -314,12 +307,12 @@ control MyDeparser(packet_out packet, in headers hdr) {
 		packet.emit(hdr.ethernet);
 		packet.emit(hdr.ipv4);
 		packet.emit(hdr.tcp);
-		packet.emit(hdr.mss);
-		packet.emit(hdr.sack);
-		packet.emit(hdr.window);
-		packet.emit(hdr.nop1);
-		packet.emit(hdr.nop2);
-		packet.emit(hdr.nop3);
+		packet.emit(hdr.tcp_opt.mss);
+		packet.emit(hdr.tcp_opt.sack);
+		packet.emit(hdr.tcp_opt.window);
+		packet.emit(hdr.tcp_opt.nop1);
+		packet.emit(hdr.tcp_opt.nop2);
+		packet.emit(hdr.tcp_opt.nop3);
 
 		packet.emit(hdr.cpu_route);
 		packet.emit(hdr.cpu_cookie);
