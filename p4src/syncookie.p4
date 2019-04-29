@@ -195,6 +195,7 @@ control MyIngress(inout headers hdr,
 		hdr.tcp_opt.padding.setValid();
 		hdr.tcp_opt.padding.padding = 0; // should be useless
 		hdr.ipv4.totalLen = 52;
+		meta.ptcl = (bit<16>) hdr.ipv4.protocol;
 	}
 
 	action handle_rst() {
@@ -316,7 +317,12 @@ control MyComputeChecksum(inout headers hdr, inout metadata meta) {
 				hdr.tcp_opt.mss,
 				hdr.tcp_opt.sack,
 				hdr.tcp_opt.window,
-				hdr.tcp_opt.padding
+				hdr.tcp_opt.padding,
+
+				hdr.ipv4.srcAddr,
+				hdr.ipv4.dstAddr,
+				meta.ptcl,
+				hdr.tcp.dataOffset
 				},
 				hdr.tcp.checksum, HashAlgorithm.csum16);
 	}

@@ -90,7 +90,7 @@ header cpu_cookie_t {
 }
 
 struct metadata {
-	bit<16> cs_word;
+	bit<16> ptcl; // ipv4 protocol for computing the checksum
 
 	bit<1>  update_route;
 	bit<1>  good_cookie;
