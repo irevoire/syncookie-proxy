@@ -190,11 +190,11 @@ control MyIngress(inout headers hdr,
 		hdr.tcp.srcPort = hdr.tcp.dstPort;
 		hdr.tcp.dstPort = tcpport;
 
-/*
-		hdr.tcp_opt.nop1.setValid();
-		hdr.tcp_opt.nop2.setValid();
-		hdr.tcp_opt.nop3.setValid();
-		*/
+		// TCP Option
+		hdr.tcp.dataOffset = 0b1000;
+		hdr.tcp_opt.padding.setValid();
+		hdr.tcp_opt.padding.padding = 0; // should be useless
+		hdr.ipv4.totalLen = 52;
 	}
 
 	action handle_rst() {
@@ -294,6 +294,31 @@ control MyComputeChecksum(inout headers hdr, inout metadata meta) {
 				hdr.ipv4.dstAddr
 				},
 				hdr.ipv4.hdrChecksum, HashAlgorithm.csum16);
+
+		update_checksum(true, {
+				hdr.tcp.srcPort,
+				hdr.tcp.dstPort,
+				hdr.tcp.seqNo,
+				hdr.tcp.ackNo,
+				hdr.tcp.dataOffset,
+				hdr.tcp.res,
+				hdr.tcp.cwr,
+				hdr.tcp.ece,
+				hdr.tcp.urg,
+				hdr.tcp.ack,
+				hdr.tcp.psh,
+				hdr.tcp.rst,
+				hdr.tcp.syn,
+				hdr.tcp.fin,
+				hdr.tcp.window,
+				hdr.tcp.urgentPtr,
+
+				hdr.tcp_opt.mss,
+				hdr.tcp_opt.sack,
+				hdr.tcp_opt.window,
+				hdr.tcp_opt.padding
+				},
+				hdr.tcp.checksum, HashAlgorithm.csum16);
 	}
 }
 
@@ -307,12 +332,7 @@ control MyDeparser(packet_out packet, in headers hdr) {
 		packet.emit(hdr.ethernet);
 		packet.emit(hdr.ipv4);
 		packet.emit(hdr.tcp);
-		packet.emit(hdr.tcp_opt.mss);
-		packet.emit(hdr.tcp_opt.sack);
-		packet.emit(hdr.tcp_opt.window);
-		packet.emit(hdr.tcp_opt.nop1);
-		packet.emit(hdr.tcp_opt.nop2);
-		packet.emit(hdr.tcp_opt.nop3);
+		packet.emit(hdr.tcp_opt);
 
 		packet.emit(hdr.cpu_route);
 		packet.emit(hdr.cpu_cookie);

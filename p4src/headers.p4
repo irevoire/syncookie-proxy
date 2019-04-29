@@ -64,17 +64,15 @@ header tcp_option_window_scale_t {
 	bit<8> shift_count;
 }
 
-header tcp_option_nop_t {
-	bit<8> type; // must be 1
+header tcp_option_padding_t {
+	bit<24> padding; // must be 0
 }
 
 struct tcp_option_t {
 	tcp_option_mss_t            mss;
 	tcp_option_sack_permitted_t sack;
 	tcp_option_window_scale_t   window;
-	tcp_option_nop_t            nop1;
-	tcp_option_nop_t            nop2;
-	tcp_option_nop_t            nop3;
+	tcp_option_padding_t        padding;
 }
 
 header cpu_route_t {
