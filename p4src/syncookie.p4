@@ -4,6 +4,7 @@
 
 #include "headers.p4"
 #include "tcp_option_parser.p4"
+#include "routing.p4"
 
 const bit<16> TYPE_IPV4 = 0x800;
 const bit<16> L2_LEARN_ETHER_TYPE = 0x1234;
@@ -67,61 +68,9 @@ control MyVerifyChecksum(inout headers hdr, inout metadata meta) {
 control MyIngress(inout headers hdr,
 		inout metadata meta,
 		inout standard_metadata_t standard_metadata) {
+
 	action drop() {
 		mark_to_drop(standard_metadata);
-	}
-
-	action mac_learn() {
-		meta.ingress_port = standard_metadata.ingress_port;
-		meta.update_route = 1;
-		clone3(CloneType.I2E, 100, meta);
-	}
-
-	table smac {
-		key = {
-			hdr.ethernet.srcAddr: exact;
-		}
-
-		actions = {
-			mac_learn;
-			NoAction;
-		}
-		size = 256;
-		default_action = mac_learn;
-	}
-
-	action forward(bit<9> egress_port) {
-		standard_metadata.egress_spec = egress_port;
-	}
-
-	table dmac {
-		key = {
-			hdr.ethernet.dstAddr: exact;
-		}
-
-		actions = {
-			forward;
-			NoAction;
-		}
-		size = 256;
-		default_action = NoAction;
-	}
-
-	action set_mcast_grp(bit<16> mcast_grp) {
-		standard_metadata.mcast_grp = mcast_grp;
-	}
-
-	table broadcast {
-		key = {
-			standard_metadata.ingress_port: exact;
-		}
-
-		actions = {
-			set_mcast_grp;
-			NoAction;
-		}
-		size = 256;
-		default_action = NoAction;
 	}
 
 	action compute_connection() {
@@ -259,7 +208,6 @@ control MyIngress(inout headers hdr,
 		hdr.ipv4.totalLen = 52;
 		meta.ptcl = (bit<16>) hdr.ipv4.protocol;
 
-
 		compute_tcp_checksum();
 	}
 
@@ -272,11 +220,7 @@ control MyIngress(inout headers hdr,
 	}
 
 	apply {
-		smac.apply();
-		if (!dmac.apply().hit) {
-			broadcast.apply();
-		}
-		hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
+		IngressForwarding.apply(hdr, meta, standard_metadata);
 		if (hdr.tcp.isValid()) {
 			compute_connection();
 			if (!tcp_forward.apply().hit) {
