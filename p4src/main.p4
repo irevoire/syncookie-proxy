@@ -141,12 +141,13 @@ control MyDeparser(packet_out packet, in headers hdr) {
 	apply {
 		//parsed headers have to be added again into the packet.
 		packet.emit(hdr.ethernet);
-		packet.emit(hdr.ipv4);
-		packet.emit(hdr.tcp);
-		packet.emit(hdr.tcp_opt);
 
 		packet.emit(hdr.cpu_route);
 		packet.emit(hdr.cpu_cookie);
+
+		packet.emit(hdr.ipv4);
+		packet.emit(hdr.tcp);
+		packet.emit(hdr.tcp_opt);
 	}
 }
 
