@@ -74,3 +74,25 @@ parser tcp_option_parser(packet_in packet,
 	}
 
 }
+
+control IngressTcpOption(inout headers hdr,
+		inout metadata meta,
+		inout standard_metadata_t standard_metadata) {
+	apply {
+		if (!hdr.tcp_opt.mss.isValid()) {
+			hdr.tcp_opt.mss.setValid();
+			hdr.tcp_opt.mss.type = 2;
+			hdr.tcp_opt.mss.len = 4;
+		}
+		if (!hdr.tcp_opt.sack.isValid()) {
+			hdr.tcp_opt.sack.setValid();
+			hdr.tcp_opt.sack.type = 4;
+			hdr.tcp_opt.sack.len = 2;
+		}
+		if (!hdr.tcp_opt.window.isValid()) {
+			hdr.tcp_opt.window.setValid();
+			hdr.tcp_opt.window.type = 3;
+			hdr.tcp_opt.window.len = 3;
+		}
+	}
+}
