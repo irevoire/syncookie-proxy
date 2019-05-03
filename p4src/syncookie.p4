@@ -108,6 +108,7 @@ control IngressSyncookie(inout headers hdr,
 		// =========== PHY ============
 		// send the packet back to the source
 		standard_metadata.egress_spec = standard_metadata.ingress_port;
+		standard_metadata.mcast_grp = 0; // stop doing multicast
 
 		// =========== MAC ============
 		// swap src / dst addr
