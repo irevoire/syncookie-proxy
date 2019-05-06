@@ -1,3 +1,5 @@
+const bit<32> COOKIE_AUTH = 0b00000001111111111111111111111111;
+
 control IngressSyncookie(inout headers hdr,
 		inout metadata meta,
 		inout standard_metadata_t standard_metadata) {
@@ -17,10 +19,16 @@ control IngressSyncookie(inout headers hdr,
 	}
 
 	action compute_cookie() {
-		meta.cookie = (bit<32>)hdr.tcp.srcPort;
-		meta.cookie = (meta.cookie << 16) | (bit<32>) hdr.tcp.dstPort;
-		meta.cookie = meta.cookie ^ hdr.ipv4.srcAddr;
-		meta.cookie = meta.cookie ^ hdr.ipv4.dstAddr;
+		bit<32> auth_cookie = 0;
+		auth_cookie = (bit<32>)hdr.tcp.srcPort;
+		auth_cookie = (auth_cookie << 16) | (bit<32>) hdr.tcp.dstPort;
+		auth_cookie = auth_cookie ^ hdr.ipv4.srcAddr;
+		auth_cookie = auth_cookie ^ hdr.ipv4.dstAddr;
+		auth_cookie = (auth_cookie & COOKIE_AUTH) +
+			(auth_cookie & (~COOKIE_AUTH));
+		meta.cookie = auth_cookie << 7;
+
+		// TODO add the other field in the cookie
 	}
 
 	table tcp_forward {
@@ -171,7 +179,9 @@ control IngressSyncookie(inout headers hdr,
 			}
 			// or has the communication already started?
 			else if ( (hdr.tcp.rst == 1) &&
-					(hdr.tcp.seqNo == meta.cookie) )
+					((hdr.tcp.seqNo & COOKIE_AUTH) ==
+					(meta.cookie & COOKIE_AUTH))
+				)
 				handle_rst();
 			else // cookie is not good
 				drop();
