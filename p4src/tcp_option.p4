@@ -9,13 +9,17 @@ error {
 
 parser tcp_option_parser(packet_in packet,
 		in bit<4> dataOffset,
+		in bit<8> options,
 		out tcp_option_t opt) {
 	bit<32> option_size = 0;
 
 	state start {
 		option_size = ((bit<32>) dataOffset) * 4; // *4 to get bytes
 		option_size = option_size - 20; // to remove the size of the tcp hdr
-		transition parse_tcp_option_check_size;
+		transition select (options) {
+			0b00000010: parse_tcp_option_check_size;
+			default: accept;
+		}
 	}
 
 	state parse_tcp_option_check_size {
