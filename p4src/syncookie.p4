@@ -1,5 +1,7 @@
 const bit<32> COOKIE_AUTH = 0b00000001111111111111111111111111;
 
+#include "cookie.p4"
+
 control IngressSyncookie(inout headers hdr,
 		inout metadata meta,
 		inout standard_metadata_t standard_metadata) {
@@ -16,19 +18,6 @@ control IngressSyncookie(inout headers hdr,
 		meta.connection = meta.connection | (bit<96>)hdr.tcp.srcPort;
 		meta.connection = meta.connection << 16;
 		meta.connection = meta.connection | (bit<96>)hdr.tcp.dstPort;
-	}
-
-	action compute_cookie() {
-		bit<32> auth_cookie = 0;
-		auth_cookie = (bit<32>)hdr.tcp.srcPort;
-		auth_cookie = (auth_cookie << 16) | (bit<32>) hdr.tcp.dstPort;
-		auth_cookie = auth_cookie ^ hdr.ipv4.srcAddr;
-		auth_cookie = auth_cookie ^ hdr.ipv4.dstAddr;
-		auth_cookie = (auth_cookie & COOKIE_AUTH) +
-			(auth_cookie & (~COOKIE_AUTH));
-		meta.cookie = auth_cookie << 7;
-
-		// TODO add the other field in the cookie
 	}
 
 	table tcp_forward {
@@ -163,7 +152,7 @@ control IngressSyncookie(inout headers hdr,
 	apply {
 		compute_connection();
 		if (!tcp_forward.apply().hit) {
-			compute_cookie();
+			compute_cookie.apply(hdr, meta);
 			// you won't steal my cookie!
 			// if SYN-RST or any other flags, drop
 			if (hdr.tcp.syn == 1 && hdr.tcp.rst == 1 ||
