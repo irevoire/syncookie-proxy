@@ -17,7 +17,7 @@ parser tcp_option_parser(packet_in packet,
 		option_size = ((bit<32>) dataOffset) * 4; // *4 to get bytes
 		option_size = option_size - 20; // to remove the size of the tcp hdr
 		transition select (options) {
-			0b00000010: parse_tcp_option_check_size;
+			0b00000010: parse_tcp_option_check_size; // SYN
 			default: accept;
 		}
 	}

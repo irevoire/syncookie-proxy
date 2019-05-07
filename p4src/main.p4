@@ -44,13 +44,13 @@ parser MyParser(packet_in packet,
 		packet.extract(hdr.tcp);
 
 		bit<8> options = ((bit<8>) hdr.tcp.cwr) << 7;
-		options = ((bit<8>) hdr.tcp.ece) << 6;
-		options = ((bit<8>) hdr.tcp.urg) << 5;
-		options = ((bit<8>) hdr.tcp.ack) << 4;
-		options = ((bit<8>) hdr.tcp.psh) << 3;
-		options = ((bit<8>) hdr.tcp.rst) << 2;
-		options = ((bit<8>) hdr.tcp.syn) << 1;
-		options = ((bit<8>) hdr.tcp.fin) << 0;
+		options = options | (((bit<8>) hdr.tcp.ece) << 6);
+		options = options | (((bit<8>) hdr.tcp.urg) << 5);
+		options = options | (((bit<8>) hdr.tcp.ack) << 4);
+		options = options | (((bit<8>) hdr.tcp.psh) << 3);
+		options = options | (((bit<8>) hdr.tcp.rst) << 2);
+		options = options | (((bit<8>) hdr.tcp.syn) << 1);
+		options = options | (((bit<8>) hdr.tcp.fin) << 0);
 		tcp_option_parser.apply(packet, hdr.tcp.dataOffset, options, hdr.tcp_opt);
 		transition accept;
 	}
