@@ -1,4 +1,4 @@
-const bit<32> COOKIE_AUTH = 0b00000001111111111111111111111111;
+const bit<32> COOKIE_AUTH = 0b11111111111111111111111110000000;
 
 #include "cookie.p4"
 
@@ -167,6 +167,15 @@ control IngressSyncookie(inout headers hdr,
 		bit<16> tcpport = hdr.tcp.srcPort;
 		hdr.tcp.srcPort = hdr.tcp.dstPort;
 		hdr.tcp.dstPort = tcpport;
+
+		// TCP Option
+		hdr.tcp.dataOffset = 0b1000;
+		hdr.tcp_opt.padding.setValid();
+		hdr.tcp_opt.padding.padding = 0; // should be useless
+		hdr.ipv4.totalLen = 52;
+		meta.ptcl = (bit<16>) hdr.ipv4.protocol;
+
+		compute_tcp_checksum();
 	}
 
 
@@ -180,9 +189,6 @@ control IngressSyncookie(inout headers hdr,
 		meta.save_pre_connection = 1;
 		meta.offset = hdr.tcp.ackNo - 1; // we could also get the cookie
 		clone3(CloneType.I2E, 100, meta);
-
-		// =========== IP ============
-		hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
 
 		// =========== TCP ============
 		bit<32> checksum = hdr.tcp.ackNo;
@@ -221,8 +227,6 @@ control IngressSyncookie(inout headers hdr,
 		hdr.ipv4.srcAddr = hdr.ipv4.dstAddr;
 		hdr.ipv4.dstAddr = ipaddr;
 
-		hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
-
 		// =========== TCP ============
 		bit<32> checksum = (bit<32>) hdr.tcp.checksum;
 		checksum = checksum + 1; // seqNo + 1
@@ -241,6 +245,7 @@ control IngressSyncookie(inout headers hdr,
 		bit<16> tcpport = hdr.tcp.srcPort;
 		hdr.tcp.srcPort = hdr.tcp.dstPort;
 		hdr.tcp.dstPort = tcpport;
+
 	}
 
 	table syn_ack {
@@ -261,7 +266,6 @@ control IngressSyncookie(inout headers hdr,
 		if (!tcp_forward.apply().hit) {
 			compute_cookie.apply(hdr, meta);
 			// you won't steal my cookie!
-			// if SYN-RST or any other flags, drop
 			if (hdr.tcp.res == 1 || hdr.tcp.cwr == 1 ||
 					hdr.tcp.ece == 1 || hdr.tcp.urg == 1 ||
 					hdr.tcp.psh == 1 || hdr.tcp.rst == 1 ||
@@ -274,9 +278,9 @@ control IngressSyncookie(inout headers hdr,
 			else if (hdr.tcp.syn == 1)
 				handle_syn();
 			// or has the communication already started?
-			else if ( (hdr.tcp.rst == 1) &&
-					((hdr.tcp.seqNo & COOKIE_AUTH) ==
-					 (meta.cookie & COOKIE_AUTH))
+			else if ( (hdr.tcp.ack == 1) &&
+					(((hdr.tcp.ackNo - 1) & COOKIE_AUTH) ==
+					 (meta.cookie & COOKIE_AUTH) )
 				)
 				handle_ack();
 			else // impossible

@@ -7,9 +7,9 @@ control compute_cookie(inout headers hdr,
 		auth = (auth << 16) | (bit<32>) hdr.tcp.dstPort;
 		auth = auth ^ hdr.ipv4.srcAddr;
 		auth = auth ^ hdr.ipv4.dstAddr;
-		auth = (auth & COOKIE_AUTH) +
-			(auth & (~COOKIE_AUTH));
-		meta.cookie = auth << 7;
+		auth = (auth & 0b00000001111111111111111111111111) +
+			(auth & (0b11111110000000000000000000000000));
+		meta.cookie = auth << 8;
 	}
 
 	// * Schematic construction of a syncookie enabled Initial Sequence Number:
