@@ -275,8 +275,10 @@ control IngressSyncookie(inout headers hdr,
 			else if (hdr.tcp.syn == 1 && hdr.tcp.ack == 1)
 				syn_ack.apply();
 			// we should get a syn
-			else if (hdr.tcp.syn == 1)
+			else if (hdr.tcp.syn == 1) {
+				TcpOptionInit.apply(hdr, meta, standard_metadata);
 				handle_syn();
+			}
 			// or has the communication already started?
 			else if ( (hdr.tcp.ack == 1) &&
 					(((hdr.tcp.ackNo - 1) & COOKIE_AUTH) ==

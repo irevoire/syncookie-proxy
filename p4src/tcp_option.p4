@@ -81,7 +81,7 @@ parser tcp_option_parser(packet_in packet,
 
 }
 
-control IngressTcpOption(inout headers hdr,
+control TcpOptionInit(inout headers hdr,
 		inout metadata meta,
 		inout standard_metadata_t standard_metadata) {
 	apply {
