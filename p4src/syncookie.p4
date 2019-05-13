@@ -1,6 +1,7 @@
 const bit<32> COOKIE_AUTH = 0b11111111111111111111111110000000;
 
 #include "cookie.p4"
+#include "checksum.p4"
 
 control IngressSyncookie(inout headers hdr,
 		inout metadata meta,
@@ -56,76 +57,6 @@ control IngressSyncookie(inout headers hdr,
 		default_action = NoAction;
 	}
 
-	action compute_tcp_checksum() {
-		bit<32> checksum = 0;
-
-		// === TCP HEADER ===
-		checksum = checksum + (bit<32>) hdr.tcp.srcPort;
-		checksum = checksum + (bit<32>) hdr.tcp.dstPort;
-		checksum = checksum + (bit<32>) (hdr.tcp.seqNo & 0x0000FFFF);
-		checksum = checksum + (bit<32>) ((hdr.tcp.seqNo & 0xFFFF0000) >> 16);
-
-		checksum = checksum + (bit<32>) (hdr.tcp.ackNo & 0x0000FFFF);
-		checksum = checksum + (bit<32>) ((hdr.tcp.ackNo & 0xFFFF0000) >> 16);
-		// tcp dataOffset + all the flags
-		bit<16> tmp = 0;
-		tmp = tmp | ((bit<16>) hdr.tcp.dataOffset) << 12;
-		tmp = tmp | ((bit<16>) hdr.tcp.res) << 8;
-		tmp = tmp | ((bit<16>) hdr.tcp.cwr) << 7;
-		tmp = tmp | ((bit<16>) hdr.tcp.ece) << 6;
-		tmp = tmp | ((bit<16>) hdr.tcp.urg) << 5;
-		tmp = tmp | ((bit<16>) hdr.tcp.ack) << 4;
-		tmp = tmp | ((bit<16>) hdr.tcp.psh) << 3;
-		tmp = tmp | ((bit<16>) hdr.tcp.rst) << 2;
-		tmp = tmp | ((bit<16>) hdr.tcp.syn) << 1;
-		tmp = tmp | ((bit<16>) hdr.tcp.fin) << 0;
-
-		checksum = checksum + (bit<32>) tmp;
-		checksum = checksum + (bit<32>) hdr.tcp.window;
-		checksum = checksum + (bit<32>) hdr.tcp.urgentPtr;
-
-		// === TCP OPTIONS ===
-		// mss
-		tmp = 0;
-		tmp = tmp | ((bit<16>) hdr.tcp_opt.mss.type) << 8;
-		tmp = tmp | ((bit<16>) hdr.tcp_opt.mss.len);
-		checksum = checksum + (bit<32>) tmp;
-		checksum = checksum + (bit<32>) hdr.tcp_opt.mss.value;
-		// sack permitted
-		tmp = 0;
-		tmp = tmp | ((bit<16>) hdr.tcp_opt.sack.type) << 8;
-		tmp = tmp | ((bit<16>) hdr.tcp_opt.sack.len);
-		checksum = checksum + (bit<32>) tmp;
-		// sack window scale
-		tmp = 0;
-		tmp = tmp | ((bit<16>) hdr.tcp_opt.window.type) << 8;
-		tmp = tmp | ((bit<16>) hdr.tcp_opt.window.len);
-		checksum = checksum + (bit<32>) tmp;
-
-		tmp = 0;
-		tmp = tmp | ((bit<16>) hdr.tcp_opt.window.shift_count) << 8;
-		checksum = checksum + (bit<32>) tmp;
-
-		// === TCP PSEUDO HEADER ===
-		checksum = checksum + (bit<32>) (hdr.ipv4.srcAddr & 0x0000FFFF);
-		checksum = checksum + (bit<32>) ((hdr.ipv4.srcAddr >> 16) & 0x0000FFFF);
-		checksum = checksum + (bit<32>) (hdr.ipv4.dstAddr & 0x0000FFFF);
-		checksum = checksum + (bit<32>) ((hdr.ipv4.dstAddr >> 16) & 0x0000FFFF);
-		// zero + protocol number
-		tmp = 0;
-		tmp = tmp | (bit<16>) hdr.ipv4.protocol;
-		checksum = checksum + (bit<32>) tmp;
-		// tcp length
-		tmp = 0;
-		tmp = tmp | (bit<16>) hdr.tcp.dataOffset;
-		tmp = tmp * 4;
-		checksum = checksum + (bit<32>) tmp;
-
-		checksum = ((checksum & 0xFFFF0000) >> 16) + (checksum & 0x0000FFFF);
-		checksum = ((checksum & 0xFFFF0000) >> 16) + (checksum & 0x0000FFFF);
-		hdr.tcp.checksum = ~((bit<16>) checksum);
-	}
-
 
 	action handle_syn() {
 		// =========== PHY ============
@@ -143,8 +74,6 @@ control IngressSyncookie(inout headers hdr,
 		ip4Addr_t ipaddr = hdr.ipv4.srcAddr;
 		hdr.ipv4.srcAddr = hdr.ipv4.dstAddr;
 		hdr.ipv4.dstAddr = ipaddr;
-
-		hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
 
 		// =========== TCP ============
 		// first we'll update the checksum
@@ -170,12 +99,10 @@ control IngressSyncookie(inout headers hdr,
 
 		// TCP Option
 		hdr.tcp.dataOffset = 0b1000;
-		hdr.tcp_opt.padding.setValid();
-		hdr.tcp_opt.padding.padding = 0; // should be useless
+		hdr.tcp_opt.padding_3.setValid();
+		hdr.tcp_opt.padding_3.padding = 0; // should be useless
 		hdr.ipv4.totalLen = 52;
 		meta.ptcl = (bit<16>) hdr.ipv4.protocol;
-
-		compute_tcp_checksum();
 	}
 
 
@@ -283,10 +210,15 @@ control IngressSyncookie(inout headers hdr,
 			else if ( (hdr.tcp.ack == 1) &&
 					(((hdr.tcp.ackNo - 1) & COOKIE_AUTH) ==
 					 (meta.cookie & COOKIE_AUTH) )
-				)
+				) {
+				// we use the ackNo on the next line because we want the
+				// original cookie with information about the mss and sack
+				SetOptionFromCookie.apply(hdr, (hdr.tcp.ackNo - 1));
 				handle_ack();
+			}
 			else // impossible
 				drop();
+			ComputeTcpChecksum.apply(hdr);
 		}
 	}
 }
