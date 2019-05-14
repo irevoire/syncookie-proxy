@@ -58,6 +58,8 @@ control IngressSyncookie(inout headers hdr,
 	}
 
 
+	/// got syn from A. We want her to proove she's a real client
+	/// and not spoofing someone. Give her a cookie and see if she send it back in the ack
 	action handle_syn() {
 		// =========== PHY ============
 		// send the packet back to the source
@@ -68,7 +70,6 @@ control IngressSyncookie(inout headers hdr,
 		macAddr_t macaddr = hdr.ethernet.srcAddr;
 		hdr.ethernet.srcAddr = hdr.ethernet.dstAddr;
 		hdr.ethernet.dstAddr = macaddr;
-
 		// =========== IP ============
 		// swap src / dst addr
 		ip4Addr_t ipaddr = hdr.ipv4.srcAddr;
@@ -133,6 +134,9 @@ control IngressSyncookie(inout headers hdr,
 		hdr.tcp.syn = 1;
 	}
 
+	/// save the gap between A and B sequence numbers and let them talk
+	/// we are going to send back an ack to finish establishing the connection
+	/// we should drop all the option before sending the ack
 	action handle_syn_ack(bit<32> old_ackNo) {
 		// =========== CPU ============
 		meta.save_connection = 1;
@@ -154,12 +158,6 @@ control IngressSyncookie(inout headers hdr,
 		hdr.ipv4.srcAddr = hdr.ipv4.dstAddr;
 		hdr.ipv4.dstAddr = ipaddr;
 
-		// =========== TCP ============
-		bit<32> checksum = (bit<32>) hdr.tcp.checksum;
-		checksum = checksum + 1; // seqNo + 1
-		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
-		hdr.tcp.checksum = (bit<16>) checksum;
-
 		// swap seqNo et ackNo
 		bit<32> seqNo = hdr.tcp.seqNo;
 		hdr.tcp.seqNo = hdr.tcp.ackNo;
@@ -173,6 +171,17 @@ control IngressSyncookie(inout headers hdr,
 		hdr.tcp.srcPort = hdr.tcp.dstPort;
 		hdr.tcp.dstPort = tcpport;
 
+		// TCP Option => drop all options
+		hdr.tcp_opt.mss.setInvalid();
+		hdr.tcp_opt.sack.setInvalid();
+		hdr.tcp_opt.window.setInvalid();
+		hdr.tcp_opt.padding_1.setInvalid();
+		hdr.tcp_opt.padding_2.setInvalid();
+		hdr.tcp_opt.padding_3.setInvalid();
+
+		hdr.tcp.dataOffset = 0b0101; // 20 bytes => TCP header alone
+
+		hdr.ipv4.totalLen = 40; // IP / TCP with no option
 	}
 
 	table syn_ack {
