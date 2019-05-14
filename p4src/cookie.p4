@@ -41,7 +41,7 @@ control compute_cookie(inout headers hdr,
 				meta.cookie = meta.cookie | 0b1010000;
 			} else if (hdr.tcp_opt.window.shift_count <= 7) {
 				meta.cookie = meta.cookie | 0b1100000;
-			} else if (hdr.tcp_opt.window.shift_count <= 8) {
+			} else { // 8
 				meta.cookie = meta.cookie | 0b1110000;
 			}
 		}
@@ -63,7 +63,7 @@ control compute_cookie(inout headers hdr,
 				meta.cookie = meta.cookie | 0b0001010;
 			} else if (hdr.tcp_opt.mss.value <= 1452) {
 				meta.cookie = meta.cookie | 0b0001100;
-			} else if (hdr.tcp_opt.mss.value <= 1460) {
+			} else { // 1460
 				meta.cookie = meta.cookie | 0b0001110;
 			}
 		}
@@ -100,9 +100,9 @@ control SetOptionFromCookie(inout headers hdr,
 		else if (window == 0b101)
 			hdr.tcp_opt.window.shift_count = 6;
 		else if (window == 0b110)
-			hdr.tcp_opt.window.shift_count = 6;
-		else if (window == 0b111)
 			hdr.tcp_opt.window.shift_count = 7;
+		else if (window == 0b111)
+			hdr.tcp_opt.window.shift_count = 8;
 
 		// from freeBSD:
 		// tcp_sc_msstab[] = { 216, 536, 1200, 1360, 1400, 1440, 1452, 1460 }
