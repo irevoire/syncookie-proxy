@@ -22,26 +22,33 @@ control IngressSyncookie(inout headers hdr,
 	}
 
 	action update_seqNo(bit<32> offset) {
-		bit<32> checksum = ~offset;
-		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
-		checksum = checksum + (bit<32>) hdr.tcp.checksum;
-		checksum = checksum + 1; // magic
-		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
-		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
-		hdr.tcp.checksum = (bit<16>) checksum;
+		bit<32> checksum = (bit<32>) hdr.tcp.checksum;
+		checksum = checksum + (bit<32>) ((hdr.tcp.seqNo & 0xFFFF0000) >> 16);
+		checksum = checksum + (bit<32>) ((hdr.tcp.seqNo & 0x0000FFFF));
 
-		hdr.tcp.seqNo = hdr.tcp.seqNo + offset;
+		hdr.tcp.seqNo = hdr.tcp.seqNo + offset; // the real calcul
+
+		checksum = checksum + (bit<32>) ((~hdr.tcp.seqNo & 0xFFFF0000) >> 16);
+		checksum = checksum + (bit<32>) ((~hdr.tcp.seqNo & 0x0000FFFF));
+		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
+		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
+
+		hdr.tcp.checksum = (bit<16>) checksum;
 	}
 
 	action update_ackNo(bit<32> offset) {
-		bit<32> checksum = offset;
-		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
-		checksum = checksum + (bit<32>) hdr.tcp.checksum;
-		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
-		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
-		hdr.tcp.checksum = (bit<16>) checksum;
+		bit<32> checksum = (bit<32>) hdr.tcp.checksum;
+		checksum = checksum + (bit<32>) ((hdr.tcp.ackNo & 0xFFFF0000) >> 16);
+		checksum = checksum + (bit<32>) ((hdr.tcp.ackNo & 0x0000FFFF));
 
-		hdr.tcp.ackNo = hdr.tcp.ackNo - offset;
+		hdr.tcp.ackNo = hdr.tcp.ackNo - offset; // the real calcul
+
+		checksum = checksum + (bit<32>) ((~hdr.tcp.ackNo & 0xFFFF0000) >> 16);
+		checksum = checksum + (bit<32>) ((~hdr.tcp.ackNo & 0x0000FFFF));
+		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
+		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
+
+		hdr.tcp.checksum = (bit<16>) checksum;
 	}
 
 	table tcp_forward {
