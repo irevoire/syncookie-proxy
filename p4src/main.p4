@@ -3,7 +3,6 @@
 #include <v1model.p4>
 
 #include "headers.p4"
-#include "tcp_option.p4"
 #include "routing.p4"
 #include "syncookie.p4"
 
@@ -42,16 +41,6 @@ parser MyParser(packet_in packet,
 
 	state parse_tcp {
 		packet.extract(hdr.tcp);
-
-		bit<8> options = ((bit<8>) hdr.tcp.cwr) << 7;
-		options = options | (((bit<8>) hdr.tcp.ece) << 6);
-		options = options | (((bit<8>) hdr.tcp.urg) << 5);
-		options = options | (((bit<8>) hdr.tcp.ack) << 4);
-		options = options | (((bit<8>) hdr.tcp.psh) << 3);
-		options = options | (((bit<8>) hdr.tcp.rst) << 2);
-		options = options | (((bit<8>) hdr.tcp.syn) << 1);
-		options = options | (((bit<8>) hdr.tcp.fin) << 0);
-		tcp_option_parser.apply(packet, hdr.tcp.dataOffset, options, hdr.tcp_opt);
 		transition accept;
 	}
 }
@@ -156,7 +145,6 @@ control MyDeparser(packet_out packet, in headers hdr) {
 
 		packet.emit(hdr.ipv4);
 		packet.emit(hdr.tcp);
-		packet.emit(hdr.tcp_opt);
 	}
 }
 

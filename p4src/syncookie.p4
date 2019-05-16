@@ -31,81 +31,10 @@ control IngressSyncookie(inout headers hdr,
 		default_action = NoAction;
 	}
 
-	action compute_tcp_checksum() {
-		bit<32> checksum = 0;
-
-		// === TCP HEADER ===
-		checksum = checksum + (bit<32>) hdr.tcp.srcPort;
-		checksum = checksum + (bit<32>) hdr.tcp.dstPort;
-		checksum = checksum + (bit<32>) (hdr.tcp.seqNo & 0x0000FFFF);
-		checksum = checksum + (bit<32>) ((hdr.tcp.seqNo & 0xFFFF0000) >> 16);
-
-		checksum = checksum + (bit<32>) (hdr.tcp.ackNo & 0x0000FFFF);
-		checksum = checksum + (bit<32>) ((hdr.tcp.ackNo & 0xFFFF0000) >> 16);
-		// tcp dataOffset + all the flags
-		bit<16> tmp = 0;
-		tmp = tmp | ((bit<16>) hdr.tcp.dataOffset) << 12;
-		tmp = tmp | ((bit<16>) hdr.tcp.res) << 8;
-		tmp = tmp | ((bit<16>) hdr.tcp.cwr) << 7;
-		tmp = tmp | ((bit<16>) hdr.tcp.ece) << 6;
-		tmp = tmp | ((bit<16>) hdr.tcp.urg) << 5;
-		tmp = tmp | ((bit<16>) hdr.tcp.ack) << 4;
-		tmp = tmp | ((bit<16>) hdr.tcp.psh) << 3;
-		tmp = tmp | ((bit<16>) hdr.tcp.rst) << 2;
-		tmp = tmp | ((bit<16>) hdr.tcp.syn) << 1;
-		tmp = tmp | ((bit<16>) hdr.tcp.fin) << 0;
-
-		checksum = checksum + (bit<32>) tmp;
-		checksum = checksum + (bit<32>) hdr.tcp.window;
-		checksum = checksum + (bit<32>) hdr.tcp.urgentPtr;
-
-		// === TCP OPTIONS ===
-		// mss
-		tmp = 0;
-		tmp = tmp | ((bit<16>) hdr.tcp_opt.mss.type) << 8;
-		tmp = tmp | ((bit<16>) hdr.tcp_opt.mss.len);
-		checksum = checksum + (bit<32>) tmp;
-		checksum = checksum + (bit<32>) hdr.tcp_opt.mss.value;
-		// sack permitted
-		tmp = 0;
-		tmp = tmp | ((bit<16>) hdr.tcp_opt.sack.type) << 8;
-		tmp = tmp | ((bit<16>) hdr.tcp_opt.sack.len);
-		checksum = checksum + (bit<32>) tmp;
-		// sack window scale
-		tmp = 0;
-		tmp = tmp | ((bit<16>) hdr.tcp_opt.window.type) << 8;
-		tmp = tmp | ((bit<16>) hdr.tcp_opt.window.len);
-		checksum = checksum + (bit<32>) tmp;
-
-		tmp = 0;
-		tmp = tmp | ((bit<16>) hdr.tcp_opt.window.shift_count) << 8;
-		checksum = checksum + (bit<32>) tmp;
-
-		// === TCP PSEUDO HEADER ===
-		checksum = checksum + (bit<32>) (hdr.ipv4.srcAddr & 0x0000FFFF);
-		checksum = checksum + (bit<32>) ((hdr.ipv4.srcAddr >> 16) & 0x0000FFFF);
-		checksum = checksum + (bit<32>) (hdr.ipv4.dstAddr & 0x0000FFFF);
-		checksum = checksum + (bit<32>) ((hdr.ipv4.dstAddr >> 16) & 0x0000FFFF);
-		// zero + protocol number
-		tmp = 0;
-		tmp = tmp | (bit<16>) hdr.ipv4.protocol;
-		checksum = checksum + (bit<32>) tmp;
-		// tcp length
-		tmp = 0;
-		tmp = tmp | (bit<16>) hdr.tcp.dataOffset;
-		tmp = tmp * 4;
-		checksum = checksum + (bit<32>) tmp;
-
-		checksum = ((checksum & 0xFFFF0000) >> 16) + (checksum & 0x0000FFFF);
-		checksum = ((checksum & 0xFFFF0000) >> 16) + (checksum & 0x0000FFFF);
-		hdr.tcp.checksum = ~((bit<16>) checksum);
-	}
-
 	action handle_syn() {
 		// =========== PHY ============
 		// send the packet back to the source
 		standard_metadata.egress_spec = standard_metadata.ingress_port;
-		standard_metadata.mcast_grp = 0; // stop doing multicast
 
 		// =========== MAC ============
 		// swap src / dst addr
@@ -119,9 +48,19 @@ control IngressSyncookie(inout headers hdr,
 		hdr.ipv4.srcAddr = hdr.ipv4.dstAddr;
 		hdr.ipv4.dstAddr = ipaddr;
 
+		hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
+
 		// =========== TCP ============
+		bit<32> checksum = ~meta.cookie;
+		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
+		checksum = checksum + (bit<32>) hdr.tcp.checksum;
+		checksum = checksum + 0xFFF0; // MAGIC
+		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
+		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
+		hdr.tcp.checksum = (bit<16>) checksum;
+
 		// send some a bad sequence number
-		hdr.tcp.seqNo = hdr.tcp.seqNo - 1;
+		hdr.tcp.seqNo = hdr.tcp.seqNo - 1; // !!! magic was calculated with this number
 		// put the cookie in the ackNo to force the client to send a RST
 		hdr.tcp.ackNo = meta.cookie;
 		// set the tcp flags to SYN-ACK
@@ -131,15 +70,6 @@ control IngressSyncookie(inout headers hdr,
 		bit<16> tcpport = hdr.tcp.srcPort;
 		hdr.tcp.srcPort = hdr.tcp.dstPort;
 		hdr.tcp.dstPort = tcpport;
-
-		// TCP Option
-		hdr.tcp.dataOffset = 0b1000;
-		hdr.tcp_opt.padding.setValid();
-		hdr.tcp_opt.padding.padding = 0; // should be useless
-		hdr.ipv4.totalLen = 52;
-		meta.ptcl = (bit<16>) hdr.ipv4.protocol;
-
-		compute_tcp_checksum();
 	}
 
 	action handle_rst() {
@@ -163,13 +93,12 @@ control IngressSyncookie(inout headers hdr,
 				drop();
 			// we should get a syn
 			else if (hdr.tcp.syn == 1) {
-				IngressTcpOption.apply(hdr, meta, standard_metadata);
 				handle_syn();
 			}
 			// or has the communication already started?
 			else if ( (hdr.tcp.rst == 1) &&
 					((hdr.tcp.seqNo & COOKIE_AUTH) ==
-					(meta.cookie & COOKIE_AUTH))
+					 (meta.cookie & COOKIE_AUTH))
 				)
 				handle_rst();
 			else // cookie is not good
