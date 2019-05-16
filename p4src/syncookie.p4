@@ -35,6 +35,7 @@ control IngressSyncookie(inout headers hdr,
 		// =========== PHY ============
 		// send the packet back to the source
 		standard_metadata.egress_spec = standard_metadata.ingress_port;
+		standard_metadata.mcast_grp = 0; // stop doing multicast
 
 		// =========== MAC ============
 		// swap src / dst addr
@@ -52,11 +53,11 @@ control IngressSyncookie(inout headers hdr,
 
 		// =========== TCP ============
 		bit<32> checksum = ~meta.cookie;
-		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
+		checksum = ((checksum & 0xFFFF0000) >> 16) + (checksum & 0x0000FFFF);
 		checksum = checksum + (bit<32>) hdr.tcp.checksum;
 		checksum = checksum + 0xFFF0; // MAGIC
-		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
-		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
+		checksum = ((checksum & 0xFFFF0000) >> 16) + (checksum & 0x0000FFFF);
+		checksum = ((checksum & 0xFFFF0000) >> 16) + (checksum & 0x0000FFFF);
 		hdr.tcp.checksum = (bit<16>) checksum;
 
 		// send some a bad sequence number
