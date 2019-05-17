@@ -84,15 +84,6 @@ control IngressSyncookie(inout headers hdr,
 		hdr.ipv4.dstAddr = ipaddr;
 
 		// =========== TCP ============
-		// first we'll update the checksum
-		bit<32> checksum = ~meta.cookie;
-		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
-		checksum = checksum + (bit<32>) hdr.tcp.checksum;
-		checksum = checksum + 0xFFEF; // MAGIC
-		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
-		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
-		hdr.tcp.checksum = (bit<16>) checksum;
-
 		// increment seqNo and move it to ackNo
 		hdr.tcp.ackNo = hdr.tcp.seqNo + 1;
 		// store the cookie into our seqNo
@@ -126,14 +117,6 @@ control IngressSyncookie(inout headers hdr,
 		clone3(CloneType.I2E, 100, meta);
 
 		// =========== TCP ============
-		bit<32> checksum = hdr.tcp.ackNo;
-		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
-		checksum = checksum + (bit<32>) hdr.tcp.checksum;
-		checksum = checksum + 0x000F; // MAGIC
-		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
-		checksum = ((checksum & 0xFFFF0000) >> 16) + checksum & 0x0000FFFF;
-		hdr.tcp.checksum = (bit<16>) checksum;
-
 		hdr.tcp.seqNo = hdr.tcp.seqNo - 1;
 		hdr.tcp.ackNo = 0; // remove the ack (cookie)
 
