@@ -3,12 +3,15 @@
 #include <v1model.p4>
 
 #include "headers.p4"
+#include "tcp_option.p4"
 #include "routing.p4"
 #include "syncookie.p4"
 
+
 const bit<16> TYPE_IPV4 = 0x800;
 const bit<16> L2_LEARN_ETHER_TYPE = 0x1234;
-const bit<16> LEARN_COOKIE = 0xF00D;
+const bit<16> SAVE_PRE_CONNECTION = 0xF00D;
+const bit<16> SAVE_CONNECTION = 0xCACA;
 
 /*************************************************************************
  ************************ P A R S E R  ***********************************
@@ -41,6 +44,17 @@ parser MyParser(packet_in packet,
 
 	state parse_tcp {
 		packet.extract(hdr.tcp);
+
+		bit<8> options = 0;
+		options = options | ((bit<8>) hdr.tcp.cwr) << 7;
+		options = options | ((bit<8>) hdr.tcp.ece) << 6;
+		options = options | ((bit<8>) hdr.tcp.urg) << 5;
+		options = options | ((bit<8>) hdr.tcp.ack) << 4;
+		options = options | ((bit<8>) hdr.tcp.psh) << 3;
+		options = options | ((bit<8>) hdr.tcp.rst) << 2;
+		options = options | ((bit<8>) hdr.tcp.syn) << 1;
+		options = options | ((bit<8>) hdr.tcp.fin) << 0;
+		tcp_option_parser.apply(packet, hdr.tcp.dataOffset, options, hdr.tcp_opt);
 		transition accept;
 	}
 }
@@ -81,24 +95,38 @@ control MyEgress(inout headers hdr,
 	apply {
 		// If ingress clone
 		if (standard_metadata.instance_type == 1) {
+			hdr.ipv4.setInvalid();
+			hdr.tcp.setInvalid();
 			if (meta.update_route == 1) {
-				hdr.ethernet.setValid();
 				hdr.cpu_route.setValid();
 				hdr.cpu_route.macAddr = hdr.ethernet.srcAddr;
 				hdr.cpu_route.ingress_port = (bit<16>)meta.ingress_port;
 				hdr.ethernet.etherType = L2_LEARN_ETHER_TYPE;
 				truncate((bit<32>)(14 + 8)); //ether+cpu router
 			}
-			else if (meta.good_cookie == 1) {
-				hdr.ethernet.setValid();
-				hdr.cpu_cookie.setValid();
-				hdr.cpu_cookie.srcAddr = hdr.ipv4.srcAddr;
-				hdr.cpu_cookie.dstAddr = hdr.ipv4.dstAddr;
-				hdr.cpu_cookie.srcPort = hdr.tcp.srcPort;
-				hdr.cpu_cookie.dstPort = hdr.tcp.dstPort;
+			else if (meta.save_pre_connection == 1) {
+				hdr.cpu_connection.setValid();
+				hdr.cpu_connection.srcAddr = hdr.ipv4.srcAddr;
+				hdr.cpu_connection.dstAddr = hdr.ipv4.dstAddr;
+				hdr.cpu_connection.srcPort = hdr.tcp.srcPort;
+				hdr.cpu_connection.dstPort = hdr.tcp.dstPort;
 
-				hdr.ethernet.etherType = LEARN_COOKIE;
-				truncate((bit<32>)(14 + 12)); //ether+cpu cookie
+				hdr.cpu_connection.offset = meta.offset;
+
+				hdr.ethernet.etherType = SAVE_PRE_CONNECTION;
+				truncate((bit<32>)(14 + 16)); //ether+cpu cookie
+			}
+			else if (meta.save_connection == 1) {
+				hdr.cpu_connection.setValid();
+				hdr.cpu_connection.srcAddr = hdr.ipv4.srcAddr;
+				hdr.cpu_connection.dstAddr = hdr.ipv4.dstAddr;
+				hdr.cpu_connection.srcPort = hdr.tcp.srcPort;
+				hdr.cpu_connection.dstPort = hdr.tcp.dstPort;
+
+				hdr.cpu_connection.offset = meta.offset + 1;
+
+				hdr.ethernet.etherType = SAVE_CONNECTION;
+				truncate((bit<32>)(14 + 16)); //ether+cpu cookie
 			}
 			else {
 				mark_to_drop(standard_metadata);
@@ -141,10 +169,11 @@ control MyDeparser(packet_out packet, in headers hdr) {
 		packet.emit(hdr.ethernet);
 
 		packet.emit(hdr.cpu_route);
-		packet.emit(hdr.cpu_cookie);
+		packet.emit(hdr.cpu_connection);
 
 		packet.emit(hdr.ipv4);
 		packet.emit(hdr.tcp);
+		packet.emit(hdr.tcp_opt);
 	}
 }
 
