@@ -23,8 +23,6 @@ class CpuCookie(Packet):
             # synCookie Proxy
             BitField('srcAddr', 0, 32),
             BitField('dstAddr', 0, 32),
-            BitField('srcPort', 0, 16),
-            BitField('dstPort', 0, 16),
             ]
 
 class L2Controller(object):
@@ -80,24 +78,16 @@ class L2Controller(object):
             self.controller.table_add("smac", "NoAction", [str(mac_addr)])
             self.controller.table_add("dmac", "forward", [str(mac_addr)], [str(ingress_port)])
 
-    def learn_connection(self, srcA, dstA, srcP, dstP):
+    def learn_connection(self, srcA, dstA):
         print("========== UPDATING CONNECTION ==========")
         connection = srcA
         connection = connection << 32
         connection = connection | dstA
-        connection = connection << 16
-        connection = connection | srcP
-        connection = connection << 16
-        connection = connection | dstP
         self.controller.table_add("tcp_forward", "NoAction", [str(connection)], [])
 
         connection = dstA
         connection = connection << 32
         connection = connection | srcA
-        connection = connection << 16
-        connection = connection | dstP
-        connection = connection << 16
-        connection = connection | srcP
         self.controller.table_add("tcp_forward", "NoAction", [str(connection)], [])
 
         print("========== UPDATE FINISHED ==========")
@@ -112,7 +102,7 @@ class L2Controller(object):
         if packet.type == 0xF00D:
             learning = CpuCookie(packet.payload)
             print("got a packet of type cookie")
-            self.learn_connection(learning.srcAddr, learning.dstAddr, learning.srcPort, learning.dstPort)
+            self.learn_connection(learning.srcAddr, learning.dstAddr)
 
     def run_cpu_port_loop(self):
         cpu_port_intf = str(self.topo.get_cpu_port_intf(self.sw_name).replace("eth0", "eth1"))

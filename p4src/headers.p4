@@ -57,8 +57,6 @@ header cpu_cookie_t {
 	// synCookie Proxy
 	ip4Addr_t srcAddr; // 4
 	ip4Addr_t dstAddr; // 4
-	bit<16>   srcPort; // 2
-	bit<16>   dstPort; // 2
 }
 
 struct metadata {
@@ -69,7 +67,7 @@ struct metadata {
 
 	bit<9>  ingress_port;
 	bit<32> cookie;
-	bit<96> connection; // two ip address (32 * 2) + two ports (16 * 2)
+	bit<80> connection; // two ip address (32 * 2) + the dst port (16)
 }
 
 struct headers {

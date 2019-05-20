@@ -92,11 +92,9 @@ control MyEgress(inout headers hdr,
 				hdr.cpu_cookie.setValid();
 				hdr.cpu_cookie.srcAddr = hdr.ipv4.srcAddr;
 				hdr.cpu_cookie.dstAddr = hdr.ipv4.dstAddr;
-				hdr.cpu_cookie.srcPort = hdr.tcp.srcPort;
-				hdr.cpu_cookie.dstPort = hdr.tcp.dstPort;
 
 				hdr.ethernet.etherType = LEARN_COOKIE;
-				truncate((bit<32>)(14 + 12)); //ether+cpu cookie
+				truncate((bit<32>)(14 + 8)); //ether+cpu cookie
 			}
 			else {
 				mark_to_drop(standard_metadata);

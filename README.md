@@ -11,9 +11,8 @@
 5. The proxy send back a RST to Alice to reinitiate the connection and keeping the same address and port number
 
 * Once the connection is established the proxy don't need to do anything
-* **Remark**: Not all application reinitiate a connection upon reception of a RST frame.
+* **Remark**: Since application will updates their source port number we can't use it. So in this strategy we only save the destination and source address.
 * Works with all methods of calculating the cookie
-
 
 ## Introduction
 

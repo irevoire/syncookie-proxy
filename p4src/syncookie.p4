@@ -10,13 +10,9 @@ control IngressSyncookie(inout headers hdr,
 	}
 
 	action compute_connection() {
-		meta.connection = (bit<96>)hdr.ipv4.srcAddr;
+		meta.connection = (bit<80>)hdr.ipv4.srcAddr;
 		meta.connection = meta.connection << 32;
-		meta.connection = meta.connection | (bit<96>)hdr.ipv4.dstAddr;
-		meta.connection = meta.connection << 16;
-		meta.connection = meta.connection | (bit<96>)hdr.tcp.srcPort;
-		meta.connection = meta.connection << 16;
-		meta.connection = meta.connection | (bit<96>)hdr.tcp.dstPort;
+		meta.connection = meta.connection | (bit<80>)hdr.ipv4.dstAddr;
 	}
 
 	action compute_cookie() {
