@@ -86,7 +86,7 @@ control IngressSyncookie(inout headers hdr,
 			compute_cookie.apply(hdr, meta);
 			// you won't steal my cookie!
 			// if SYN-RST or any other flags, drop
-			if (hdr.tcp.syn == 1 && hdr.tcp.rst == 1 ||
+			if ((hdr.tcp.syn == 1 && hdr.tcp.rst == 1) ||
 					hdr.tcp.res == 1 || hdr.tcp.cwr == 1 ||
 					hdr.tcp.ece == 1 || hdr.tcp.urg == 1 ||
 					hdr.tcp.psh == 1 || hdr.tcp.ack == 1 ||
